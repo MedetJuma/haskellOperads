@@ -1,0 +1,113 @@
+# Operadic Buchberger Configuration File
+# --------------------------------------
+
+# Actions:
+#  normalise  -- find a Groebner basis
+#  count      -- count the number of normal forms
+#                  with respect to the given theory
+
+actions: normalise count
+
+# --------------------------------------
+# Parameters for counting
+
+# Count limit
+#   for each arity up to the given limit,
+#   the number of normal forms will be counted
+
+count limit: 10
+
+
+# --------------------------------------
+# Parameters for normalisation
+
+# Output options
+#  initial    -- show the initial theory
+#  new        -- show new rewrite rules at each stage
+#  final      -- show final theory
+#  evaluation -- show the evaluation of each critical pair
+
+output:         initial final evaluation
+
+
+# Time limit (seconds)
+#   computation will be abandoned after this time
+#   leave empty for no time limit
+
+time limit:	
+
+
+# Arity limit (number of leaves)
+#   computation will be abandoned upon reaching this arity
+#   leave empty for no arity limit
+
+arity limit: 7
+
+
+# --------------------------------------
+# Operad specification
+
+# Field
+# the default field over which polynomials are taken is the rationals
+# to use a finite integer field instead, give a (prime) number here 
+
+field:
+
+
+# Operad type
+#  choose one of: shuffle / asymmetric
+#  and one of:    signed / unsigned
+
+operad type: shuffle unsigned
+
+# Measure 
+# a measure for ordering trees is given by a sequence of:
+#   ar               -- arity
+#   deg              -- degree or depth
+#   lex              -- lexicographic path order
+#   perm   / permr   -- (reverse) leaf order
+#   deglex / deglexr -- (reverse) degree-lexicographic path order
+#   weighted
+
+measure: deglex perm
+
+# weighted deglexr perm
+
+# Signature
+# give a number of operators defined by
+#   str  (optional)        -- a name
+#   num  (optional)        -- a weight (for use in a weighted ordering)
+#   +    (optional)        -- a positive homological degree
+#   (num), [num], or {num} -- bracket type and arity (num)
+# name, weight and homological degree may be given in any order
+# names (if given) must be unique
+
+signature: [2]
+
+
+
+# --------------------------------------
+# Theory specification
+
+
+# Theory
+# a theory is given by a series of polynomials (each on a new line)
+# a polynomial is given by a sum of monomials,
+#    m1 (+/-) m2 (+/-) ... (+/-) mn
+# a monomial is given by
+#    x or x/y  -- an integer or rational multiplier (optional)
+#    tree      -- a tree over the given signature
+# a tree is given by one of
+#    num or *               -- a leaf
+#    str (tree ... tree)    -- the name (str) is optional; if absent,
+#    str [tree ... tree]    -- the operator is identified by bracket type
+#    str {tree ... tree}    -- the number of (tree)s must match the arity
+#                               given by the signature
+# for shuffle trees, leaves must be a permutation of 1..n
+# for asymmetric trees, all leaves are reset to *
+# {{* * *} * *} + {* {* * *} *} + {* * {* * *}}
+# [[1 2] 3] + [[2 3] 1] + [[3 1] 2]
+
+theory:
+
+[[1 2] 3] + [1 [2 3]] + [[1 3] 2]

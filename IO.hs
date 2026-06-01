@@ -147,11 +147,12 @@ stepNM cfg (Stage i sig w sta sml lrg) =
       new = normaliseTheory w z sta (mapMaybe (polyToRw z) nor)
       
       -- 3. Find relative CPs
-      cps = relativeCPs sta new ++ selfCPs new
+      rawCPs = relativeCPs sta new ++ selfCPs new
       
       -- 4. Fast filtering of redundant CPs according to Buchberger's triangle lemma
-      -- keepMask = map (not . isRedundant (sta ++ new)) rawCPs `using` parListChunk 16 rseq
-      -- cps = [ cp | (cp, True) <- zip rawCPs keepMask ]
+      keepMask = map (not . isRedundant (sta ++ new)) rawCPs `using` parListChunk 16 rseq
+      cps = [ cp | (cp, True) <- zip rawCPs keepMask ]
+      -- cps = filter (not . isRedundant (sta ++ new)) rawCPs
 
       str1 = if null new then "No new rewrite rules\n"
                          else "Newly stable rewrite rules:\n\n  " ++ intercalate "\n\n  " (map (pp sig) new)

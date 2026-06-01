@@ -123,10 +123,10 @@ scm2_ b s t = let m = arity s
 -- Critical Pairs
 
 data CriticalPair a = CP {arityCP   :: Int,
-                          cm        :: a,
-                          other     :: Pos,
-                          rwRoot    :: Rewrite a, 
-                          rwOther   :: Rewrite a }
+                          cm        :: a, -- the common multiple
+                          other     :: Pos, -- the vertex in the common multiple where the second rule is applied
+                          rwRoot    :: Rewrite a, -- the first rewrite rule
+                          rwOther   :: Rewrite a } -- the second rewrite rule
 
 instance Arity (CriticalPair a) where
   arity = arityCP
@@ -159,22 +159,67 @@ selfCPs = \case [] -> []
 
 
 -- Test whether a rewrite rule divides a tree (helper for redundancy checks)
-divides :: Operations a => Rewrite a -> a -> Bool
-divides (d,_,_) t = any (\(s,_) -> isJust (divide0 s d >>= divide1)) (splits t)
-
+-- divides :: Operations a => Rewrite a -> a -> Bool
+-- divides (d,_,_) t = any (\(s,_) -> isJust (divide0 s d >>= divide1)) (splits t)
 
 -- Buchberger's triangle lemma: a critical pair is redundant if there
 -- exists a rewrite rule c in the given list such that c's left-hand side
 -- is not the same as the root or other rule's left-hand side, and c
 -- divides the common multiple `cm` of cp.
-isRedundant :: (Operations a, Eq a) => [Rewrite a] -> CriticalPair a -> Bool
+
+-- !!ONLY THE FIRST CONDITION IS CHECKED. Durys emes degen soz, janadan jazaiyk
+-- isRedundant :: (Operations a, Eq a) => [Rewrite a] -> CriticalPair a -> Bool
+-- isRedundant rws cp = any check rws
+--   where
+--     (rootL,_,_)  = rwRoot cp
+--     (otherL,_,_) = rwOther cp
+--     rootReset  = reset rootL
+--     otherReset = reset otherL
+--     check rw@(t,_,_) = let tR = reset t
+--                        in tR /= rootReset && tR /= otherReset && divides rw (cm cp)
+
+-- Check if one tree structurally divides another
+treeDivides :: Operations a => a -> a -> Bool
+treeDivides d t = any (\(s,_) -> isJust (divide0 s d >>= divide1)) (splits t)
+
+-- Proper division
+properDivides :: (Operations a, Eq a) => a -> a -> Bool
+properDivides d t = treeDivides d t && reset d /= reset t
+
+-- Buchberger's triangle lemma for operads
+isRedundant :: (Operations a, CriticalPairs a, Eq a) => [Rewrite a] -> CriticalPair a -> Bool
 isRedundant rws cp = any check rws
   where
     (rootL,_,_)  = rwRoot cp
     (otherL,_,_) = rwOther cp
+    cmT          = cm cp
+    
     rootReset  = reset rootL
     otherReset = reset otherL
-    check rw@(t,_,_) = let tR = reset t
-                       in tR /= rootReset && tR /= otherReset && divides rw (cm cp)
+    
+    -- Generates all possible common multiples between trees t1 and t2
+    allCommonMultiples t1 t2 = map fst (scm True t1 t2) ++ map fst (scm False t2 t1)
+    
+    check rw@(t3,_,_) = 
+      let t3Reset = reset t3
+      in t3Reset /= rootReset && 
+         t3Reset /= otherReset && 
+         -- Condition 1 from Corollary 3.5.3.3 / 5.5.3.3 (Bremner, Dotsenko):
+         treeDivides t3 cmT && 
+         
+         -- Condition 2 from Corollary 3.5.3.3 / 5.5.3.3 (Bremner, Dotsenko):
+         
+         -- Exists a common multiple T' of (rootL, t3) that properly divides cmT
+         any (`properDivides` cmT) (allCommonMultiples rootL t3) &&
+         
+         -- Exists a common multiple T'' of (t3, otherL) that properly divides cmT
+         any (`properDivides` cmT) (allCommonMultiples t3 otherL)
 
 
+-- Execute as follows
+-- cabal run OperadsHaskell1 -- +RTS -N4 -qa -A64m
+-- -A64m garbage collector 64 Mb
+-- -qa pins specific threads. One can also use taskset 0, 1, 2, 3, ...
+-- -N4 runs on the program 4 cores
+
+-- MONDAY AT 2:00 PM

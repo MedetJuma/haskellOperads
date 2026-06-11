@@ -221,5 +221,3 @@ isRedundant rws cp = any check rws
 -- -A64m garbage collector 64 Mb
 -- -qa pins specific threads. One can also use taskset 0, 1, 2, 3, ...
 -- -N4 runs on the program 4 cores
-
--- MONDAY AT 2:00 PM

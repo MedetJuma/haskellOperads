@@ -15,7 +15,7 @@ actions: normalise count
 #   for each arity up to the given limit,
 #   the number of normal forms will be counted
 
-count limit: 10
+count limit: 4
 
 
 # --------------------------------------
@@ -41,7 +41,7 @@ time limit:
 #   computation will be abandoned upon reaching this arity
 #   leave empty for no arity limit
 
-arity limit: 10
+arity limit: 8
 
 
 # --------------------------------------
@@ -60,6 +60,7 @@ field:
 
 operad type: shuffle unsigned
 
+
 # Measure 
 # a measure for ordering trees is given by a sequence of:
 #   ar               -- arity
@@ -69,7 +70,7 @@ operad type: shuffle unsigned
 #   deglex / deglexr -- (reverse) degree-lexicographic path order
 #   weighted
 
-measure: deglex perm
+measure: deglexr perm
 
 # weighted deglexr perm
 
@@ -82,7 +83,7 @@ measure: deglex perm
 # name, weight and homological degree may be given in any order
 # names (if given) must be unique
 
-signature: [2]
+signature: (2)
 
 
 
@@ -105,9 +106,11 @@ signature: [2]
 #                               given by the signature
 # for shuffle trees, leaves must be a permutation of 1..n
 # for asymmetric trees, all leaves are reset to *
-# {{* * *} * *} + {* {* * *} *} + {* * {* * *}}
-# [[1 2] 3] + [[2 3] 1] + [[3 1] 2]
 
 theory:
 
-[[1 2] 3] + [1 [2 3]] + [[1 3] 2]
+((1 2) 3) + ((1 3) 2) + (1 (2 3))
+
+reduce:
+
+(1 ((2 3) ((4 5) ((6 7)(8 9)))))

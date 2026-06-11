@@ -66,7 +66,8 @@ data Config = Config {doNormalise    :: Bool,
                       getField       :: Field,
                       getMeasure     :: Measure,
                       getSignature   :: Signature,
-                      getTheory      :: THEORY
+                      getTheory      :: THEORY,
+                      getReduce      :: Maybe THEORY
                      }
 
 isLeft = \case Left _ -> True; Right _ -> False
@@ -97,7 +98,13 @@ instance Show Config where
                                 Left  (Right t) -> map (pp $ getSignature x) t
                                 Right (Left  t) -> map (pp $ getSignature x) t
                                 Right (Right t) -> map (pp $ getSignature x) t
-    in unlines [a,b,c,d,e,f,g,h,i,j,k]
+        reduceText = \case
+          Left  (Left  t) -> intercalate "\n\n  " (map (pp $ getSignature x) t)
+          Left  (Right t) -> intercalate "\n\n  " (map (pp $ getSignature x) t)
+          Right (Left  t) -> intercalate "\n\n  " (map (pp $ getSignature x) t)
+          Right (Right t) -> intercalate "\n\n  " (map (pp $ getSignature x) t)
+        mText = maybe "" (\r -> "reduce:\n\n  " ++ reduceText r) (getReduce x)
+      in unlines [a,b,c,d,e,f,g,h,i,j,k,mText]
 
 showTime t = let h = div t 3600
                  m = rem t 3600 `div` 60
@@ -140,8 +147,8 @@ stepCP (Stage i sig w sta [] cps) =
 stepNM :: (Rewriting a, PPrint a, NFData a) => Config -> Stage a -> IO (Stage a)
 stepNM cfg (Stage i sig w sta sml lrg) =
   let z   = getField cfg
-      -- 1. Evaluate and normalise in parallel
-      nor = map (normalise w z sta . evaluateCP w z) sml `using` parListChunk 16 rdeepseq
+      -- 1. Evaluate and normalise in parallel 
+      nor = map (normalise w z sta . evaluateCP w z) sml `using` parBuffer 16 rdeepseq
 
       -- 2. Normalise theory
       new = normaliseTheory w z sta (mapMaybe (polyToRw z) nor)
@@ -150,7 +157,7 @@ stepNM cfg (Stage i sig w sta sml lrg) =
       rawCPs = relativeCPs sta new ++ selfCPs new
       
       -- 4. Fast filtering of redundant CPs according to Buchberger's triangle lemma
-      keepMask = map (not . isRedundant (sta ++ new)) rawCPs `using` parListChunk 16 rseq
+      keepMask = map (not . isRedundant (sta ++ new)) rawCPs `using` parBuffer 16 rseq
       cps = [ cp | (cp, True) <- zip rawCPs keepMask ]
       -- cps = filter (not . isRedundant (sta ++ new)) rawCPs
 
@@ -198,6 +205,7 @@ stepNM cfg (Stage i sig w sta sml lrg) =
 stop :: (Rewriting a, PPrint a) => Config -> Stage a -> Maybe String
 stop cfg st | null (small st) && null (large st) = --naturally if small and large are null, we stop
                 Just ("Success!" 
+                      -- ++ if printFinal cfg then " Complete theory: \n\n  " ++ pp (signature st) (stable st) else "" )
                       ++ if printFinal cfg then " Complete theory: \n\n  " ++ pp (signature st) (stable st) else "" )
             | Just i <- breakArity cfg, arity st >= i = 
                 Just ("Stopped at arity " ++ show (arity st) ++ "."
@@ -225,27 +233,85 @@ timedLoop cfg t1 st =
                                                   Just st' -> timedLoop cfg t1 st'
   
 
-solve_ :: (Rewriting a, PPrint a, NFData a, NFData (Poly a)) => Config -> [Poly a] -> IO ()
+solve_ :: (Rewriting a, PPrint a, NFData a, NFData (Poly a), Eq a) => Config -> Maybe [Poly a] -> [Poly a] -> IO ()
 -- cfg = configurations
 -- st = stage (groebner basis so far)
 -- ps = polynomials
-solve_ cfg ps = do st0 <- initialise cfg ps -- initialise configurations and polynomials
-                   stn <- if doNormalise cfg
-                          then case breakTime cfg of
-                                 Nothing -> loop cfg st0
-                                 Just i  -> do t0 <- getCPUTime
-                                               timedLoop cfg (t0 + (fromIntegral i * 10^12)) st0
-                          else return st0    
-                   if doCount cfg -- doCount is a Boolean in Configuration cfg
-                   then generate (isShuffle cfg) (countArity cfg) stn -- count normal forms
-                   else return ()
+solve_ cfg mReduce ps = do
+  st0 <- initialise cfg ps -- initialise configurations and polynomials
+  stn <- if doNormalise cfg
+         then case breakTime cfg of
+                Nothing -> loop cfg st0
+                Just i  -> do t0 <- getCPUTime
+                              timedLoop cfg (t0 + (fromIntegral i * 10^12)) st0
+         else return st0
+  case mReduce of
+    Nothing -> return ()
+    Just rs -> do
+      let sig = signature stn
+          w   = weights stn
+          z   = getField cfg
+          reducePoly p = reduceByTheory w z (stable stn) p
+          pairs = zip rs (map reducePoly rs)
+      putStrLn "\nReduced tree(s):\n"
+      putStrLn $ intercalate "\n\n" [ "  " ++ pp sig p ++ "\n    ->  " ++ pp sig q | (p,q) <- pairs ]
+  if doCount cfg -- doCount is a Boolean in Configuration cfg
+  then generate (isShuffle cfg) (countArity cfg) stn -- count normal forms
+  else return ()
+
+reduceByTheory :: (Rewriting a, Eq a) => Weighting -> Field -> [Rewrite a] -> Poly a -> Poly a
+reduceByTheory w z rws p =
+  let nf = normalise w z rws p
+  in if nf /= canonical z p
+        then negatePoly z nf
+   else case p of
+     [(t,_,_)] -> maybe nf (negatePoly z) (solveRuleForTree z t rws)
+     _         -> nf
+
+negatePoly :: Field -> Poly a -> Poly a
+negatePoly z = map (\(t,m,i) -> (t,m,neg_ z i))
+
+solveRuleForTree :: (OperadTree a, Eq a) => Field -> a -> [Rewrite a] -> Maybe (Poly a)
+solveRuleForTree z target rws = listToMaybe $ mapMaybe (isolateTarget z target . rwToPoly z) rws
+
+isolateTarget :: Eq a => Field -> a -> Poly a -> Maybe (Poly a)
+isolateTarget z target poly = do
+  (_, _, coeff) <- find ((== target) . fromMono) poly
+  let others = [ (t, m, mul_ z (neg_ z 1) (div_ z c coeff))
+               | (t, m, c) <- poly
+               , t /= target ]
+  return (canonical z others)
 
 solve :: Config -> IO ()
-solve cfg = case getTheory cfg of
-              Left  (Left  t) -> solve_ cfg t
-              Left  (Right t) -> solve_ cfg t
-              Right (Left  t) -> solve_ cfg t
-              Right (Right t) -> solve_ cfg t
+solve cfg = case (getTheory cfg, getReduce cfg) of
+              (Left  (Left  t), r) -> solve_ cfg (matchReduceOT  r) t
+              (Left  (Right t), r) -> solve_ cfg (matchReduceOTS r) t
+              (Right (Left  t), r) -> solve_ cfg (matchReduceAT  r) t
+              (Right (Right t), r) -> solve_ cfg (matchReduceATS r) t
+
+matchReduceOT :: Maybe THEORY -> Maybe [Poly OT]
+matchReduceOT = \case
+  Nothing -> Nothing
+  Just (Left (Left t)) -> Just t
+  _ -> Nothing
+
+matchReduceOTS :: Maybe THEORY -> Maybe [Poly OTS]
+matchReduceOTS = \case
+  Nothing -> Nothing
+  Just (Left (Right t)) -> Just t
+  _ -> Nothing
+
+matchReduceAT :: Maybe THEORY -> Maybe [Poly AT]
+matchReduceAT = \case
+  Nothing -> Nothing
+  Just (Right (Left t)) -> Just t
+  _ -> Nothing
+
+matchReduceATS :: Maybe THEORY -> Maybe [Poly ATS]
+matchReduceATS = \case
+  Nothing -> Nothing
+  Just (Right (Right t)) -> Just t
+  _ -> Nothing
 
 generate :: (Rewriting a, PPrint a) => Bool -> Int -> Stage a -> IO ()
 generate b i st = --(b -> Shuffle or not), (i -> count arity), (st) -> Groebner basis

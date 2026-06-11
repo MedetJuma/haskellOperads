@@ -234,24 +234,25 @@ readPoly sig z m = do whitespace
             p <- f
             return (if s == '+' then m:p else (x,y,neg_ z i) : p))
 
-readPolys :: OperadTree a => Signature -> Field -> Measure -> Parser [Poly a]
-readPolys sig z m = do string "theory:"
-                       skipMany space
-                       ps <- many (try (readPoly sig z m) <|> (emptyLine >> return []))
-                       return $ filter (/= []) ps
+readPolysBlock :: OperadTree a => String -> Signature -> Field -> Measure -> Parser [Poly a]
+readPolysBlock label sig z m = do string label
+                                  skipMany space
+                                  ps <- many (try (readPoly sig z m) <|> (emptyLine >> return []))
+                                  return $ filter (/= []) ps
 
-verifyPolys :: OperadTree a => Bool -> Field -> Signature -> Measure -> Parser [Poly a]
-verifyPolys b z sig m = do t <- readPolys sig z m
-                           case (if b then verifyS_ sig t else verifyA_ sig t) of
-                             Just s  -> fail s
-                             Nothing -> do
-                               let trees = map (\(tr,_,_) -> tr) (concat t)
-                               
-                               if b && not (all isShuffleTree trees)
-                                 then fail "Input Error: A non-shuffle tree was provided in input.txt while operad type is set to 'shuffle'."
-                                 else case adjustField z t of 
-                                        Nothing -> fail "Field adjustment failed"
-                                        Just r  -> return r
+verifyPolys :: OperadTree a => Bool -> String -> Field -> Signature -> Measure -> Parser [Poly a]
+verifyPolys b label z sig m = do
+  t <- readPolysBlock label sig z m
+  case (if b then verifyS_ sig t else verifyA_ sig t) of
+    Just s  -> fail s
+    Nothing -> do
+      let trees = map (\(tr,_,_) -> tr) (concat t)
+
+      if b && not (all isShuffleTree trees)
+        then fail "Input Error: A non-shuffle tree was provided in input.txt while operad type is set to 'shuffle'."
+        else case adjustField z t of
+               Nothing -> fail "Field adjustment failed"
+               Just r  -> return r
                                                            
 -- Check if a tree satisfies the shuffle tree condition
 isShuffleTree :: OperadTree a => a -> Bool
@@ -287,13 +288,20 @@ readConfig = do emptyLines
                 emptyLines
                 s <- liftM verifySig readSignature
                 emptyLines
-                x <- if fst o then if snd o then liftM (Left  . Right) $ verifyPolys True  f s m
-                                            else liftM (Left  . Left ) $ verifyPolys True  f s m
-                              else if snd o then liftM (Right . Right) $ verifyPolys False f s m
-                                            else liftM (Right . Left ) $ verifyPolys False f s m
+                x <- if fst o then if snd o then liftM (Left  . Right) $ verifyPolys True  "theory:" f s m
+                                            else liftM (Left  . Left ) $ verifyPolys True  "theory:" f s m
+                              else if snd o then liftM (Right . Right) $ verifyPolys False "theory:" f s m
+                                            else liftM (Right . Left ) $ verifyPolys False "theory:" f s m
+                emptyLines
+                r <- optionMaybe $ try $
+                       case x of
+                         Left  (Left  _) -> liftM (Left  . Left ) $ verifyPolys True  "reduce:" f s m
+                         Left  (Right _) -> liftM (Left  . Right) $ verifyPolys True  "reduce:" f s m
+                         Right (Left  _) -> liftM (Right . Left ) $ verifyPolys False "reduce:" f s m
+                         Right (Right _) -> liftM (Right . Right) $ verifyPolys False "reduce:" f s m
                 emptyLines
                 eof
-                return (Config n g l a t b c d e f m s x)
+                return (Config n g l a t b c d e f m s x r)
 
 ----------------------------
 

@@ -176,7 +176,7 @@ normaliseTheory w z imm mut = f mut [] where
     case normaliseRw w z (imm++ys) r of
       Nothing -> f rs ys
       Just s  -> let 
-                     results = map (normaliseRwFlag w z [s]) ys `using` parListChunk 16 rdeepseq
+                     results = map (normaliseRwFlag w z [s]) ys `using` parBuffer 16 rdeepseq
                      
                      xs = [ r' | (False, Just r') <- results ]
                      zs = [ r' | (True,  Just r') <- results ]

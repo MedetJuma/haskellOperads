@@ -21,6 +21,7 @@ class (Ord a, Arity a) => OperadTree a where
   leaf           :: Int -> a
   vertex         :: Int -> [a] -> a
   vertexS        :: Int -> Bool -> [a] -> a
+  znleaves       :: Int -> a
   splitVertex    :: a -> Either Int ([a],[a] -> a) 
      -- Gives index of leaf / branches and root function of vertex
   
@@ -42,6 +43,7 @@ class (Ord a, Arity a) => OperadTree a where
   sign_t       = const True
   vertex  i    = vertexS i True
   vertexS i _  = vertex  i
+  znleaves n   = reset (vertex (-1) (replicate n (leaf 0)))
   vertexType   = listToMaybe . vertexTypes
 
 

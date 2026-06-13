@@ -5,10 +5,11 @@ module PrettyPrinting where
 import Data.List
 import Data.Ratio
 
-import Utils
+import Utils()
 import Signature
 import OperadTree
 import Polynomials
+import Measure (showMeasure)
 import CriticalPairs
 
 
@@ -41,6 +42,10 @@ ppScalar i = let j = abs i; n = numerator j; m = denominator i;
 ppMono_ :: PPrint a => Signature -> Mono a -> String
 ppMono_ sig (t,_,i) = let (b,str) = ppScalar i in "  " ++ (if b then "+" else "-") ++ "  " ++ str ++ pp sig t
 
+ppSignatureM :: PPrint a => Signature -> Mono a -> String
+ppSignatureM sig (t,m,i) =
+  pp sig t ++ "  {" ++ showMeasure m ++ "}  *  " ++ show i
+
 instance PPrint a => PPrint (Poly a) where
   pp sig = \case []         -> "*"
                  (t,_,i):ms -> let (b,str) = ppScalar i in (if b then "" else "- ") ++ str ++ pp sig t ++ concatMap (ppMono_ sig) ms
@@ -49,31 +54,37 @@ instance PPrint a => PPrint [Poly a] where
   pp sig ps = intercalate "\n" (map (pp sig) ps)
 
 instance PPrint a => PPrint (Rewrite a) where
-  pp sig (r,_,ps) = pp sig r ++ "  ->  " ++ pp sig ps
+  pp sig (Rewrite r _ ps sigM sigL) =
+    pp sig r ++ "  ->  " ++ pp sig ps ++
+    "  [sigM " ++ ppSignatureM sig sigM ++ ", sigL " ++ show sigL ++ "]"
 
 instance PPrint a => PPrint [Rewrite a] where
   pp sig xs = intercalate "\n\n  " (map (pp sig) xs)
 
 instance PPrint a => PPrint (CriticalPair a) where
-  pp sig (CP _ t pos r1 r2) = let t' = pp sig t
-                                  p' = "pos: " ++ intercalate "." (map show pos)
-                                  l  = length t' - length p'
-                                  s = replicate (abs l) ' '
-                              in
-                                  t' ++ (if l < 0 then s else "") ++ "     " ++ pp sig r1 ++ "\n" ++
-                                  p' ++ (if l > 0 then s else "") ++ "     " ++ pp sig r2
+  pp sig (CP _ t pos r1 r2 _ _) =
+    let t' = pp sig t
+        p' = "pos: " ++ intercalate "." (map show pos)
+        l  = length t' - length p'
+        s  = replicate (abs l) ' '
+    in t' ++ (if l < 0 then s else "") ++ "     " ++ pp sig r1 ++ "\n" ++
+       p' ++ (if l > 0 then s else "") ++ "     " ++ pp sig r2
 
 instance PPrint a => PPrint [CriticalPair a] where
   pp sig xs = intercalate "\n" $ map (pp sig) xs
 
 
 
+ppTree :: (PPrint a, OperadTree a) => Signature -> a -> String
 ppTree sig t = case splitVertex t of
-    Left i       -> if i == 0 then "*" else show i
-    Right (ts,_) -> let Just i = vertexType t; op = sig !! i
-                    in name op ++ [open (bracket op)]
-                               ++ intercalate " " (map (pp sig) ts)
-                               ++ [close (bracket op)]
+  Left i       -> if i == 0 then "*" else show i
+  Right (ts,_) -> case vertexType t of
+    Just (-1) -> "znleaves" ++ [open "()"] ++ show (length ts) ++ [close "()"]
+    Just i  -> let op = sig !! i
+               in name op ++ [open (bracket op)]
+                          ++ intercalate " " (map (pp sig) ts)
+                          ++ [close (bracket op)]
+    Nothing -> error "ppTree: missing vertex type"
 
 instance PPrint OT where
   pp = ppTree

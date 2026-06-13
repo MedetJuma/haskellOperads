@@ -28,12 +28,13 @@ import PrettyPrinting
 
 -- KNUTH-BENDIX / BUCHBERGER
 
-data Stage a = Stage {size      :: Int,
-                      signature :: Signature,
-                      weights   :: Weighting,
-                      stable    :: [Rewrite a],
-                      small     :: [CriticalPair a],
-                      large     :: [CriticalPair a]}
+data Stage a = Stage {size          :: Int,
+                      signature     :: Signature,
+                      weights       :: Weighting,
+                      stable        :: [Rewrite a],
+                      small         :: [CriticalPair a],
+                      large         :: [CriticalPair a],
+                      currentMaxIdx :: Int}
 
 instance Arity (Stage a) where
   arity = size
@@ -123,51 +124,71 @@ initialise cfg ps = -- maybe it's possible to just pass ps or just cfg?
   let sig = getSignature cfg
       w   = weighting sig
       -- rws = rewritten rules (rewrites)
-      rws = normaliseTheory w (getField cfg) [] (mapMaybe (polyToRw $ getField cfg) ps)
+      rws = zipWith assignInitialSignature [1..]
+            $ normaliseTheory w (getField cfg) [] (mapMaybe (polyToRw $ getField cfg) ps)
       -- lrg = large queued critical pairs
       lrg = selfCPs rws
+      currentMaxIdx = length rws
       str = "Initial rewrite theory:\n\n  " ++ pp sig rws
   in do if printInit cfg then putStrLn str else return ()
-        return (Stage 0 sig w rws [] lrg)
+        return (Stage 0 sig w rws [] lrg currentMaxIdx)
+  where
+    assignInitialSignature i (Rewrite t m p _ _) = Rewrite t m p (znleaves (arity t), m, 1) i
 
 
 -- berilgen polynomdardy ulken kishi dep bolu.
 stepCP :: (Rewriting a, PPrint a) => Stage a -> IO (Stage a)
-stepCP (Stage i sig w sta [] cps) =
-  let n = if null cps then i else minimum (map arity cps)
-      (sml,lrg) = partition ((==n) . arity) cps -- if arity is greater than n, it's large 
-      str = "\nArity: " ++ show n ++ 
-            "   Stable rewrite rules: "   ++ show (length sta) ++
-            "   Current critical pairs: " ++ show (length sml) ++ -- sml = small (current)
-            "   Queued critical pairs: "  ++ show (length lrg) ++ "\n"
-      st' = Stage n sig w sta sml lrg
-  in putStrLn str >> printSizes "stepCP" st' >> return st'
+stepCP (Stage i sig w sta [] cps currentMaxIdx) =
+  putStrLn str >> printSizes "stepCP" st' >> return st'
+  where
+    n = if null cps then i else minimum (map arity cps)
+    (sml,lrg) = partition ((==n) . arity) cps -- if arity is greater than n, it's large 
+    str = "\nArity: " ++ show n ++
+      "   Stable rewrite rules: "   ++ show (length sta) ++
+      "   Current critical pairs: " ++ show (length sml) ++ -- sml = small (current)
+      "   Queued critical pairs: "  ++ show (length lrg) ++ "\n"
+    st' = Stage n sig w sta sml lrg currentMaxIdx
 
 
+-- barlyk esepteuler osynda
 stepNM :: (Rewriting a, PPrint a, NFData a) => Config -> Stage a -> IO (Stage a)
-stepNM cfg (Stage i sig w sta sml lrg) =
+stepNM cfg (Stage i sig w sta sml lrg currentMaxIdx) =
   let z   = getField cfg
       -- 1. Evaluate and normalise in parallel 
-      nor = map (normalise w z sta . evaluateCP w z) sml `using` parBuffer 16 rdeepseq
+      rawNor = (map (\cp -> evaluateCPRw w z cp >>= normaliseRw w z sta) sml) `using` parListChunk 16 rdeepseq
+      nor = catMaybes rawNor
 
       -- 2. Normalise theory
-      new = normaliseTheory w z sta (mapMaybe (polyToRw z) nor)
+      rawNew = normaliseTheory w z sta nor
       
-      -- 3. Find relative CPs
+      -- 3. Reindex new rules
+      nextIdx = currentMaxIdx + 1
+      new = zipWith reindexRule [nextIdx..] rawNew `using` parListChunk 16 rdeepseq
+      newMaxIdx = currentMaxIdx + length new
+      
+      -- 4. Find relative CPs using the newly indexed rules
       rawCPs = relativeCPs sta new ++ selfCPs new
       
-      -- 4. Fast filtering of redundant CPs according to Buchberger's triangle lemma
-      keepMask = map (not . isRedundant (sta ++ new)) rawCPs `using` parBuffer 16 rseq
-      cps = [ cp | (cp, True) <- zip rawCPs keepMask ]
-      -- cps = filter (not . isRedundant (sta ++ new)) rawCPs
+      -- 5. Filtering with respect to Buchberger's triangle lemma
+      keepMask = map (not . isRedundant (sta ++ new)) rawCPs `using` parListChunk 16 rseq
+      diamondCPs = [ cp | (cp, True) <- zip rawCPs keepMask ]
+
+      -- 6. Filtering with respect to F5 
+      keepMaskF = map (not . isRedundantF5 (sta ++ new)) diamondCPs `using` parListChunk 16 rseq
+      cps = [ cp | (cp, True) <- zip diamondCPs keepMaskF ]
 
       str1 = if null new then "No new rewrite rules\n"
                          else "Newly stable rewrite rules:\n\n  " ++ intercalate "\n\n  " (map (pp sig) new)
       str2 = unlines $ zipWith f sml nor
       f s1 s2 = pp sig s1 ++ "\n    resolves to:\n" ++ pp sig s2 ++ "\n"
-  in do if printNew cfg then putStrLn str1 else return ()
-        if printCPs cfg then putStrLn str2 else return ()
-        return $ Stage i sig w (sortBy (comparing (\(_,_,p) -> length p)) $ sta ++ new) [] (lrg ++ cps)
+  in do
+    if printNew cfg then putStrLn str1 else return ()
+    if printCPs cfg then putStrLn str2 else return ()
+
+    -- Append the correctly indexed new rules to the stable basis
+    return $ Stage i sig w (sta ++ new) [] (lrg ++ cps) newMaxIdx
+  where
+    reindexRule j (Rewrite t m p sigM _) = Rewrite t m p sigM j
 
 -- stepNM :: (Rewriting a, PPrint a, Eq a) => Config -> Stage a -> IO (Stage a)
 -- stepNM cfg (Stage i sig w sta sml lrg) = -- Buchberger algorithm step
@@ -318,7 +339,7 @@ generate b i st = --(b -> Shuffle or not), (i -> count arity), (st) -> Groebner 
   do putStrLn "\nCounting normal forms:\n\n  arity | normal forms"
      if b then write $ normalShuffleTreesUpto (signature st) ts i
           else write $ normalTreesUpto (signature st) ts i
-  where ts = map (\(x,_,_) -> x) $ stable st
+  where ts = map rwTree $ stable st
         write xs = putStrLn $ unlines [ write1 nn | nn <- zip [3..] . map length $ drop 3 xs ]
         write1 (i,n) = align 6 (show i) ++ "  | " ++ align 7 (show n) 
         align n str  = replicate (n - length str) ' ' ++ str

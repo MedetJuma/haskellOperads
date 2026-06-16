@@ -97,10 +97,10 @@ getSysconfDir :: IO FilePath
 
 bindir, libdir, dynlibdir, datadir, libexecdir, sysconfdir :: FilePath
 bindir     = "/Users/a1/.cabal/bin"
-libdir     = "/Users/a1/.cabal/lib/aarch64-osx-ghc-9.14.1-ea4f/OperadsHaskell1-0.1.0.0-inplace-OperadsHaskell1"
-dynlibdir  = "/Users/a1/.cabal/lib/aarch64-osx-ghc-9.14.1-ea4f"
-datadir    = "/Users/a1/.cabal/share/aarch64-osx-ghc-9.14.1-ea4f/OperadsHaskell1-0.1.0.0"
-libexecdir = "/Users/a1/.cabal/libexec/aarch64-osx-ghc-9.14.1-ea4f/OperadsHaskell1-0.1.0.0"
+libdir     = "/Users/a1/.cabal/lib/aarch64-osx-ghc-9.14.1-bcbf/OperadsHaskell1-0.1.0.0-inplace-OperadsHaskell1"
+dynlibdir  = "/Users/a1/.cabal/lib/aarch64-osx-ghc-9.14.1-bcbf"
+datadir    = "/Users/a1/.cabal/share/aarch64-osx-ghc-9.14.1-bcbf/OperadsHaskell1-0.1.0.0"
+libexecdir = "/Users/a1/.cabal/libexec/aarch64-osx-ghc-9.14.1-bcbf/OperadsHaskell1-0.1.0.0"
 sysconfdir = "/Users/a1/.cabal/etc"
 
 getBinDir     = catchIO (getEnv "OperadsHaskell1_bindir")     (\_ -> return bindir)

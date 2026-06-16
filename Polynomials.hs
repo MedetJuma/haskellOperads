@@ -88,12 +88,14 @@ verifySig sig = let ns = filter (/="") $ map name sig in if ns == nub ns then si
 verifyArity :: OperadTree a => Signature -> a -> Maybe String
 verifyArity sig t = case splitVertex t of 
   Left _ -> Nothing
-  Right (ts,_) -> case vertexType t of Just i -> if i >= length sig 
-                                                   then Just "vertex type not in signature (this should not happen)"
-                                                   else if arity (sig !! i) == length ts
-                                                          then listToMaybe $ mapMaybe (verifyArity sig) ts
-                                                          else Just ("occurrence of vertex type " ++ show (sig !! i)
-                                                                       ++ " with arity " ++ show (length ts) )
+  Right (ts,_) -> case vertexType t of
+    Just (-1) -> listToMaybe $ mapMaybe (verifyArity sig) ts
+    Just i -> if i >= length sig 
+                then Just "vertex type not in signature (this should not happen)"
+                else if arity (sig !! i) == length ts
+                       then listToMaybe $ mapMaybe (verifyArity sig) ts
+                       else Just ("occurrence of vertex type " ++ show (sig !! i)
+                                    ++ " with arity " ++ show (length ts) )
 
 verifyShuffle :: OperadTree a => a -> Maybe String
 verifyShuffle t = if sort (leaves t) `isPrefixOf` [1..] then Nothing else Just "gap in leaf order, or duplicate leaves"

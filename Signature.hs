@@ -4,6 +4,7 @@ module Signature where
 
 import Data.List
 
+import OperadTree
 import Utils
 
 
@@ -39,6 +40,11 @@ close [_,c] = c
 
 weighting :: Signature -> Weighting
 weighting sig i = let n = length sig in if i < n then wgt (sig !! i) else 0
+
+
+znleaves :: OperadTree a => Int -> a
+znleaves n | n <= 0    = error "znleaves: number of leaves must be positive"
+           | otherwise = vertex (-1) (map leaf [1..n])
 
 
 ------------------------- Creating signatures

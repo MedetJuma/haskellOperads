@@ -195,6 +195,14 @@ readField = do string "field:"
 readLeaf :: OperadTree a => Parser a
 readLeaf = liftM leaf (readNum <|> (char '*' >> return 0)) 
 
+readZnLeaves :: OperadTree a => Parser a
+readZnLeaves = try $ do string "znleaves"
+                        whitespace
+                        (o,n,c) <- parens readNum
+                        if n <= 0
+                          then fail "znleaves: number of leaves must be positive"
+                          else return $ znleaves n
+
 readVertex :: OperadTree a => Signature -> Parser a
 readVertex sig = do n <- try readName <|> return ""
                     whitespace

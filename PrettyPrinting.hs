@@ -43,8 +43,8 @@ ppMono_ :: PPrint a => Signature -> Mono a -> String
 ppMono_ sig (t,_,i) = let (b,str) = ppScalar i in "  " ++ (if b then "+" else "-") ++ "  " ++ str ++ pp sig t
 
 ppSignatureM :: PPrint a => Signature -> Mono a -> String
-ppSignatureM sig (t,m,i) =
-  pp sig t ++ "  {" ++ showMeasure m ++ "}  *  " ++ show i
+ppSignatureM sig (t,_,_) =
+  pp sig t
 
 instance PPrint a => PPrint (Poly a) where
   pp sig = \case []         -> "*"
@@ -79,11 +79,12 @@ ppTree :: (PPrint a, OperadTree a) => Signature -> a -> String
 ppTree sig t = case splitVertex t of
   Left i       -> if i == 0 then "*" else show i
   Right (ts,_) -> case vertexType t of
-    Just (-1) -> "znleaves" ++ [open "()"] ++ show (length ts) ++ [close "()"]
-    Just i  -> let op = sig !! i
-               in name op ++ [open (bracket op)]
-                          ++ intercalate " " (map (pp sig) ts)
-                          ++ [close (bracket op)]
+    Just i  -> if i >= 0 && i < length sig
+               then let op = sig !! i
+                    in name op ++ [open (bracket op)]
+                               ++ intercalate " " (map (pp sig) ts)
+                               ++ [close (bracket op)]
+               else "(-1)" ++ [open "()"] ++ intercalate " " (map (pp sig) ts) ++ [close "()"]
     Nothing -> error "ppTree: missing vertex type"
 
 instance PPrint OT where

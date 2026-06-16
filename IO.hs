@@ -25,7 +25,6 @@ import PrettyPrinting
 
 
 
-
 -- KNUTH-BENDIX / BUCHBERGER
 
 data Stage a = Stage {size          :: Int,
@@ -163,7 +162,16 @@ stepNM cfg (Stage i sig w sta sml lrg currentMaxIdx) =
       
       -- 3. Reindex new rules
       nextIdx = currentMaxIdx + 1
-      new = zipWith reindexRule [nextIdx..] rawNew `using` parListChunk 16 rdeepseq
+
+      -- new = if nextIdx <= 300
+      --   then let sortedRawNew = sortBy (comparing (\(Rewrite _ _ _ _ sigL) -> sigL)) rawNew
+      --        in zipWith reindexRule [nextIdx..] sortedRawNew `using` parListChunk 16 rseq
+      --   else rawNew
+      
+      sortedRawNew = sortBy (comparing (\(Rewrite _ _ _ _ sigL) -> sigL)) rawNew 
+          
+      -- Evaluate the reindexing in parallel chunks
+      new = zipWith reindexRule [nextIdx..] sortedRawNew `using` parListChunk 16 rseq
       newMaxIdx = currentMaxIdx + length new
       
       -- 4. Find relative CPs using the newly indexed rules
@@ -176,6 +184,7 @@ stepNM cfg (Stage i sig w sta sml lrg currentMaxIdx) =
       -- 6. Filtering with respect to F5 
       keepMaskF = map (not . isRedundantF5 (sta ++ new)) diamondCPs `using` parListChunk 16 rseq
       cps = [ cp | (cp, True) <- zip diamondCPs keepMaskF ]
+      -- cps = diamondCPs
 
       str1 = if null new then "No new rewrite rules\n"
                          else "Newly stable rewrite rules:\n\n  " ++ intercalate "\n\n  " (map (pp sig) new)

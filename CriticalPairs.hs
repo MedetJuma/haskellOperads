@@ -180,7 +180,7 @@ criticalPairs b r1@(Rewrite t1 _ _ _ _) r2@(Rewrite t2 _ _ _ _) = (if b then [] 
       case divide0 cmTree tree >>= divide1 of
         Just ts -> let (sigTree, sigMeasure, sigScalar) = sigM
                    in (graft ts sigTree, sigMeasure, sigScalar)
-        Nothing -> sigM
+        Nothing -> error "liftSignature: division failed"
 
     -- Pattern match to extract 'tree' and 'sigM'
 
@@ -189,7 +189,7 @@ criticalPairs b r1@(Rewrite t1 _ _ _ _) r2@(Rewrite t2 _ _ _ _) = (if b then [] 
       in case divide0 s_pos tree >>= divide1 of
           Just ts -> let (sigTree, sigMeasure, sigScalar) = sigM
                       in (g (graft ts sigTree), sigMeasure, sigScalar) -- 2. Apply 'g'
-          Nothing -> sigM
+          Nothing -> error "liftSignatureOther: division failed"
 
 -- Find critical pairs of <theory1> with <theory2> 
 
@@ -269,11 +269,14 @@ isRedundantF5 :: (Operations a, CriticalPairs a, Eq a) => [Rewrite a] -> Critica
 isRedundantF5 rws cp = any check rws
   where
     CP _ _ _ (Rewrite rootL _ _ _ _) (Rewrite otherL _ _ _ _) sigM sigL = cp
+    cmT = cm cp
     sigTree = fromMono sigM
     
     rootReset  = reset rootL
     otherReset = reset otherL
     
+    allCommonMultiples t1 t2 = map fst (scm True t1 t2) ++ map fst (scm False t2 t1)
+
     check (Rewrite t3 _ _ _ ind3) = 
       let t3Reset = reset t3
       in t3Reset /= rootReset && 
@@ -283,7 +286,7 @@ isRedundantF5 rws cp = any check rws
          (ind3 < sigL) && 
          
          -- 2. F5 Divison 
-         treeDivides t3 sigTree
+         properDivides t3 sigTree -- &&
          
         -- 3. Dotsenko-Khoroshkin type condition???
         --  any (`properDivides` cmT) (allCommonMultiples rootL t3) &&

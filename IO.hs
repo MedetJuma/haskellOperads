@@ -158,7 +158,7 @@ stepNM cfg (Stage i sig w sta sml lrg currentMaxIdx) =
       nor = catMaybes rawNor
 
       -- 2. Normalise theory
-      rawNew = normaliseTheory w z sta nor
+      new = normaliseTheory w z sta nor
       
       -- 3. Reindex new rules
       nextIdx = currentMaxIdx + 1
@@ -343,7 +343,7 @@ matchReduceATS = \case
   Just (Right (Right t)) -> Just t
   _ -> Nothing
 
-generate :: (Rewriting a, PPrint a) => Bool -> Int -> Stage a -> IO ()
+generate :: (Rewriting a, PPrint a, NFData a) => Bool -> Int -> Stage a -> IO ()
 generate b i st = --(b -> Shuffle or not), (i -> count arity), (st) -> Groebner basis
   do putStrLn "\nCounting normal forms:\n\n  arity | normal forms"
      if b then write $ normalShuffleTreesUpto (signature st) ts i

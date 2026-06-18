@@ -5,6 +5,8 @@ module Generation where
 import Control.Arrow
 import Control.Monad
 import Data.Maybe
+import Control.DeepSeq
+import Control.Parallel.Strategies
 
 import Utils
 import Signature
@@ -13,49 +15,51 @@ import Operations
 
 
 
-normalTrees :: Operations a => Signature -> [a] -> Int -> [a]
+normalTrees :: (Operations a, NFData a) => Signature -> [a] -> Int -> [a]
 normalTrees sig ds = last . normalTreesUpto sig ds
 
-normalShuffleTrees :: Operations a => Signature -> [a] -> Int -> [a]
+normalShuffleTrees :: (Operations a, NFData a) => Signature -> [a] -> Int -> [a]
 normalShuffleTrees sig ds = last . normalShuffleTreesUpto sig ds
  
  -- count trees which do not contain leading terms of Groebner basis as its fragments.
-normalTreesUpto :: Operations a => Signature -> [a] -> Int -> [[a]]
+normalTreesUpto :: (Operations a, NFData a) => Signature -> [a] -> Int -> [[a]]
 normalTreesUpto sig ds i
  | i <= 0 = [[]]
  | i == 1 = [[],[leaf 0]]
  | otherwise =
      let ts = normalTreesUpto sig ds (i-1)
-         f (k,op) = sumsOfLength (arity op) i 1 >>= (map (vertexS k $ sgn op) . sequence . map (ts !!)) 
-         ns = filter (isNormal0 ds) . concatMap f $ zip [0..] sig
+         f (k,op) = sumsOfLength (arity op) i 1 >>= (map (vertexS k $ sgn op) . sequence . map (ts !!)) `using` parListChunk 16 rdeepseq
+         candidates = concatMap f (zip [0..] sig)
+         keepMaskNS = map (isNormal0 ds) candidates `using` parListChunk 16 rdeepseq
+         ns         = [ c | (c, True) <- zip candidates keepMaskNS ]
      in ts ++ [ns]
 
-normalShuffleTreesUpto :: Operations a => Signature -> [a] -> Int -> [[a]]
+normalShuffleTreesUpto :: (Operations a, NFData a) => Signature -> [a] -> Int -> [[a]]
 normalShuffleTreesUpto sig ds i
  | i <= 0 = [[]]
  | i == 1 = [[],[leaf 1]]
  | otherwise =
      let ts = normalShuffleTreesUpto sig ds (i-1)
-         f (k,op) = sumsOfLength (arity op) i 1 >>= (concatMap (shuffleVertex k (sgn op)) . sequence . map (ts !!)) 
+         f (k,op) = sumsOfLength (arity op) i 1 >>= (concatMap (shuffleVertex k (sgn op)) . sequence . map (ts !!)) `using` parListChunk 16 rdeepseq
          ns = filter (isNormal0S ds) . concatMap f $ zip [0..] sig
      in ts ++ [ns]
 
-shuffleVertex :: Operations a => Int -> Bool -> [a] -> [a]
+shuffleVertex :: (Operations a, NFData a) => Int -> Bool -> [a] -> [a]
 shuffleVertex i b ts = let l = length ts
                            f 0    []  t = [t]
                            f i (x:xs) t = allGrafts x t i >>= f (i-1) xs
                        in f l ts . vertexS i b $ map leaf [1..l]
 
-allGrafts :: Operations a => a -> a -> Int -> [a] 
+allGrafts :: (Operations a, NFData a) => a -> a -> Int -> [a] 
 allGrafts s t i = let m = arity s
                       n = arity t
                       r = relabel (+n) s
                   in [ relabel f $ graft [(i,r)] t | f <- merge [1..n] [n+1..n+m] [(i,n+1)] ]
 
-isNormal0 :: OperadTree a => [a] -> a -> Bool
+isNormal0 :: (OperadTree a, NFData a) => [a] -> a -> Bool
 isNormal0 rs t = all (isNothing . divide0 t) rs
 
-isNormal0S :: OperadTree a => [a] -> a -> Bool
+isNormal0S :: (OperadTree a, NFData a) => [a] -> a -> Bool
 isNormal0S rs t = all (isNothing . (divide0 t >=> divideShuffle)) rs
 
 ----------

@@ -55,8 +55,8 @@ instance PPrint a => PPrint [Poly a] where
 
 instance PPrint a => PPrint (Rewrite a) where
   pp sig (Rewrite r _ ps sigM sigL) =
-    pp sig r ++ "  ->  " ++ pp sig ps ++
-    "  [sigM " ++ ppSignatureM sig sigM ++ ", sigL " ++ show sigL ++ "]"
+    pp sig r ++ "  ->  " ++ pp sig ps-- ++
+    --"  [sigM " ++ ppSignatureM sig sigM ++ ", sigL " ++ show sigL ++ "]"
 
 instance PPrint a => PPrint [Rewrite a] where
   pp sig xs = intercalate "\n\n  " (map (pp sig) xs)

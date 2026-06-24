@@ -5,8 +5,9 @@
 #  normalise  -- find a Groebner basis
 #  count      -- count the number of normal forms
 #                  with respect to the given theory
+#  stageCount -- show counts after each arity
 
-actions: normalise
+actions: normalise count stageCount
 
 # --------------------------------------
 # Parameters for counting
@@ -15,7 +16,7 @@ actions: normalise
 #   for each arity up to the given limit,
 #   the number of normal forms will be counted
 
-count limit: 10
+count limit: 12
 
 # --------------------------------------
 # Parameters for normalisation
@@ -26,19 +27,19 @@ count limit: 10
 #  final      -- show final theory
 #  evaluation -- show the evaluation of each critical pair
 
-output: final
+output:
 
 # Time limit (seconds)
 #   computation will be abandoned after this time
 #   leave empty for no time limit
 
-time limit: 15
+time limit:
 
 # Arity limit (number of leaves)
 #   computation will be abandoned upon reaching this arity
 #   leave empty for no arity limit
 
-arity limit: 10
+arity limit: 12
 
 # --------------------------------------
 # Operad specification

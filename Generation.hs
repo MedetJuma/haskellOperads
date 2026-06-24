@@ -7,6 +7,9 @@ import Control.Monad
 import Data.Maybe
 import Control.DeepSeq
 import Control.Parallel.Strategies
+import Data.IORef
+import System.IO.Unsafe (unsafePerformIO)
+import Data.List (isPrefixOf)
 
 import Utils
 import Signature
@@ -14,35 +17,94 @@ import OperadTree
 import Operations
 
 
-
-normalTrees :: (Operations a, NFData a) => Signature -> [a] -> Int -> [a]
+normalTrees :: (Memoizable a, NFData a) => Signature -> [a] -> Int -> [a]
 normalTrees sig ds = last . normalTreesUpto sig ds
 
-normalShuffleTrees :: (Operations a, NFData a) => Signature -> [a] -> Int -> [a]
+normalShuffleTrees :: (Memoizable a, NFData a) => Signature -> [a] -> Int -> [a]
 normalShuffleTrees sig ds = last . normalShuffleTreesUpto sig ds
- 
- -- count trees which do not contain leading terms of Groebner basis as its fragments.
-normalTreesUpto :: (Operations a, NFData a) => Signature -> [a] -> Int -> [[a]]
-normalTreesUpto sig ds i
- | i <= 0 = [[]]
- | i == 1 = [[],[leaf 0]]
- | otherwise =
-     let ts = normalTreesUpto sig ds (i-1)
-         f (k,op) = sumsOfLength (arity op) i 1 >>= (map (vertexS k $ sgn op) . sequence . map (ts !!)) `using` parListChunk 16 rdeepseq
-         candidates = concatMap f (zip [0..] sig)
-         keepMaskNS = map (isNormal0 ds) candidates `using` parListChunk 16 rdeepseq
-         ns         = [ c | (c, True) <- zip candidates keepMaskNS ]
-     in ts ++ [ns]
 
-normalShuffleTreesUpto :: (Operations a, NFData a) => Signature -> [a] -> Int -> [[a]]
+class (Operations a, Eq a) => Memoizable a where
+  normalTreesCache        :: IORef (Maybe (Signature, [a], [[a]]))
+  normalShuffleTreesCache :: IORef (Maybe (Signature, [a], [[a]]))
+
+instance Memoizable OT where
+  normalTreesCache = unsafePerformIO (newIORef Nothing)
+  {-# NOINLINE normalTreesCache #-}
+  normalShuffleTreesCache = unsafePerformIO (newIORef Nothing)
+  {-# NOINLINE normalShuffleTreesCache #-}
+
+instance Memoizable OTS where
+  normalTreesCache = unsafePerformIO (newIORef Nothing)
+  {-# NOINLINE normalTreesCache #-}
+  normalShuffleTreesCache = unsafePerformIO (newIORef Nothing)
+  {-# NOINLINE normalShuffleTreesCache #-}
+
+instance Memoizable AT where
+  normalTreesCache = unsafePerformIO (newIORef Nothing)
+  {-# NOINLINE normalTreesCache #-}
+  normalShuffleTreesCache = unsafePerformIO (newIORef Nothing)
+  {-# NOINLINE normalShuffleTreesCache #-}
+
+instance Memoizable ATS where
+  normalTreesCache = unsafePerformIO (newIORef Nothing)
+  {-# NOINLINE normalTreesCache #-}
+  normalShuffleTreesCache = unsafePerformIO (newIORef Nothing)
+  {-# NOINLINE normalShuffleTreesCache #-}
+
+-- Cache that filters previous levels if new rules are added,
+--   and evaluates only up to the requested arity
+cacheTrees :: (Eq a, NFData a) => IORef (Maybe (Signature, [a], [[a]])) -> ([a] -> a -> Bool) -> a -> (Int -> [[a]] -> [a]) -> Signature -> [a] -> Int -> [[a]]
+cacheTrees ref checkNormal baseLeaf genNext sig ds i = unsafePerformIO $ do
+  cached <- readIORef ref
+  let baseLevels = case cached of
+        -- 1. Exact match: nothing changed, reuse the whole cache
+        Just (sig', ds', lvls) | sig' == sig && ds' == ds ->
+          lvls
+        -- 2. Prefix match: new rules were appended. Filter the old cache!
+        Just (sig', ds', lvls) | sig' == sig && ds' `isPrefixOf` ds ->
+          let newRules = drop (length ds') ds
+          in map (filter (checkNormal newRules)) lvls
+        -- 3. Cache miss: start from scratch
+        _ ->
+          [[], [baseLeaf]]
+
+  -- Strictly compute only up to i
+  let extend curr target
+        | length curr > target = curr
+        | otherwise =
+            let nextLevel = genNext (length curr) curr
+            in extend (curr ++ [nextLevel]) target
+
+  let newLevels = extend baseLevels i
+  writeIORef ref (Just (sig, ds, newLevels))
+  return (take (i + 1) newLevels)
+{-# NOINLINE cacheTrees #-}
+
+
+normalTreesUpto :: (Memoizable a, NFData a) => Signature -> [a] -> Int -> [[a]]
+normalTreesUpto sig ds i
+  | i <= 0    = [[]]
+  | otherwise = cacheTrees normalTreesCache check (leaf 0) genNext sig ds i
+  where
+    -- If a tree was already normal under old rules, only check the new rules
+    check newRules t = isNormal0 newRules t
+    genNext j currLvls =
+      let f (k, op) = sumsOfLength (arity op) j 1 >>= (map (vertexS k $ sgn op) . sequence . map (currLvls !!)) `using` parListChunk 16 rdeepseq
+          candidates = concatMap f (zip [0..] sig)
+          -- When a new tree is generated, we check it against all rules
+          keepMask = map (isNormal0 ds) candidates `using` parListChunk 16 rdeepseq
+      in [ c | (c, True) <- zip candidates keepMask ]
+
+
+normalShuffleTreesUpto :: (Memoizable a, NFData a) => Signature -> [a] -> Int -> [[a]]
 normalShuffleTreesUpto sig ds i
- | i <= 0 = [[]]
- | i == 1 = [[],[leaf 1]]
- | otherwise =
-     let ts = normalShuffleTreesUpto sig ds (i-1)
-         f (k,op) = sumsOfLength (arity op) i 1 >>= (concatMap (shuffleVertex k (sgn op)) . sequence . map (ts !!)) `using` parListChunk 16 rdeepseq
-         ns = filter (isNormal0S ds) . concatMap f $ zip [0..] sig
-     in ts ++ [ns]
+  | i <= 0    = [[]]
+  | otherwise = cacheTrees normalShuffleTreesCache check (leaf 1) genNext sig ds i
+  where
+    check newRules t = isNormal0S newRules t
+    genNext j currLvls =
+      let f (k, op) = sumsOfLength (arity op) j 1 >>= (concatMap (shuffleVertex k (sgn op)) . sequence . map (currLvls !!)) `using` parListChunk 16 rdeepseq
+      in filter (isNormal0S ds) . concatMap f $ zip [0..] sig
 
 shuffleVertex :: (Operations a, NFData a) => Int -> Bool -> [a] -> [a]
 shuffleVertex i b ts = let l = length ts

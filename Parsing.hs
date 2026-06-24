@@ -93,10 +93,11 @@ readRatio = do n <- readNum
 
 -- Actions
 
-readActions :: Parser (Bool,Bool)
+readActions :: Parser (Bool,Bool,Bool)
 readActions = do string "actions:" >> whitespace
-                 permute $ (,) <$?> (False, string "normalise" >> whitespace_ True)
-                               <|?> (False, string "count" >> whitespace_ True)
+                 permute $ (,,) <$?> (False, string "normalise" >> whitespace_ True)
+                                 <|?> (False, string "count" >> whitespace_ True)
+                                 <|?> (False, string "stageCount" >> whitespace_ True)
 
 ----------------------------
 
@@ -278,7 +279,7 @@ adjustField (Just i) = mapM (mapM f)
 
 readConfig :: Parser Config
 readConfig = do emptyLines
-                (n,g) <- readActions
+                (n,g,w) <- readActions
                 emptyLines
                 l <- readCountLimit
                 emptyLines
@@ -309,7 +310,7 @@ readConfig = do emptyLines
                          Right (Right _) -> liftM (Right . Right) $ verifyPolys False "reduce:" f s m
                 emptyLines
                 eof
-                return (Config n g l a t b c d e f m s x r)
+                return (Config n g w l a t b c d e f m s x r)
 
 ----------------------------
 

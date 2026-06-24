@@ -24,7 +24,6 @@ import Rewriting
 import PrettyPrinting
 
 
-
 -- KNUTH-BENDIX / BUCHBERGER
 
 data Stage a = Stage {size          :: Int,
@@ -33,7 +32,8 @@ data Stage a = Stage {size          :: Int,
                       stable        :: [Rewrite a],
                       small         :: [CriticalPair a],
                       large         :: [CriticalPair a],
-                      currentMaxIdx :: Int}
+                      currentMaxIdx :: Int
+                      }
 
 instance Arity (Stage a) where
   arity = size
@@ -56,6 +56,7 @@ type THEORY = Either (Either [Poly OT] [Poly OTS]) (Either [Poly AT] [Poly ATS])
 
 data Config = Config {doNormalise    :: Bool,
                       doCount        :: Bool,
+                      doStageCount   :: Bool,
                       countArity     :: Int,
                       breakArity     :: Maybe Int,
                       breakTime      :: Maybe Int,
@@ -80,6 +81,7 @@ instance Show Config where
     let a = "\n\nConfiguration:\n"
         b = "actions:        " ++ (if doNormalise x then "normalise " else "")
                                ++ (if doCount x then "count " else "")
+                               ++ (if doStageCount x then "stageCount " else "")
         c = "count limit:    " ++ show (countArity x)
         d = "arity limit:    " ++ case breakArity x of Just i -> show i; Nothing -> "none"
         e = "time limit:     " ++ case breakTime  x of Just i -> showTime i; Nothing -> "none"
@@ -245,13 +247,17 @@ stop cfg st | null (small st) && null (large st) = --naturally if small and larg
             | otherwise = Nothing
 
 
-loop :: (Rewriting a, PPrint a, NFData a, NFData (Poly a)) => Config -> Stage a -> IO (Stage a)
-loop cfg st = case stop cfg st of -- stops based on the decision of the function stop(cfg, st)
-                Nothing  -> stepCP st >>= stepNM cfg >>= loop cfg
+loop :: (Rewriting a, PPrint a, NFData a, NFData (Poly a), Memoizable a) => Config -> Stage a -> IO (Stage a)
+loop cfg st = case stop cfg st of
+                Nothing  -> do
+                  st' <- stepCP st >>= stepNM cfg
+                  if doStageCount cfg 
+                     then generate (isShuffle cfg) (arity st') st'
+                     else return ()
+                  loop cfg st'
                 Just str -> putStrLn str >> return st
 
-
-timedLoop :: (Rewriting a, PPrint a, NFData a, NFData (Poly a)) => Config -> Integer -> Stage a -> IO (Stage a)
+timedLoop :: (Rewriting a, PPrint a, NFData a, NFData (Poly a), Memoizable a) => Config -> Integer -> Stage a -> IO (Stage a)
 timedLoop cfg t1 st = 
   let str = ("Timed out at arity " ++ show (arity st) ++ "." ++ 
              if printFinal cfg then " Theory thus far: \n\n" ++ pp (signature st) (stable st) else "")
@@ -261,11 +267,16 @@ timedLoop cfg t1 st =
                       let d = fromIntegral $ div (t1 - t0) (10^6)
                       if d <= 0 then putStrLn str >> return st
                                 else do m  <- timeout d (stepCP st >>= stepNM cfg)
-                                        case m of Nothing  -> putStrLn str >> return st
-                                                  Just st' -> timedLoop cfg t1 st'
+                                        case m of 
+                                          Nothing  -> putStrLn str >> return st
+                                          Just st' -> do
+                                            if doStageCount cfg 
+                                               then generate (isShuffle cfg) (arity st') st'
+                                               else return ()
+                                            timedLoop cfg t1 st'
   
 
-solve_ :: (Rewriting a, PPrint a, NFData a, NFData (Poly a), Eq a) => Config -> Maybe [Poly a] -> [Poly a] -> IO ()
+solve_ :: (Rewriting a, PPrint a, NFData a, NFData (Poly a), Eq a, Memoizable a) => Config -> Maybe [Poly a] -> [Poly a] -> IO ()
 -- cfg = configurations
 -- st = stage (groebner basis so far)
 -- ps = polynomials
@@ -345,7 +356,7 @@ matchReduceATS = \case
   Just (Right (Right t)) -> Just t
   _ -> Nothing
 
-generate :: (Rewriting a, PPrint a, NFData a) => Bool -> Int -> Stage a -> IO ()
+generate :: (Rewriting a, PPrint a, NFData a, Memoizable a) => Bool -> Int -> Stage a -> IO ()
 generate b i st = --(b -> Shuffle or not), (i -> count arity), (st) -> Groebner basis
   do putStrLn "\nCounting normal forms:\n\n  arity | normal forms"
      if b then write $ normalShuffleTreesUpto (signature st) ts i

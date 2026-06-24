@@ -154,11 +154,12 @@ stepNM :: (Rewriting a, PPrint a, NFData a) => Config -> Stage a -> IO (Stage a)
 stepNM cfg (Stage i sig w sta sml lrg currentMaxIdx) =
   let z   = getField cfg
       -- 1. Evaluate and normalise in parallel 
+
       rawNor = (map (\cp -> evaluateCPRw w z cp >>= normaliseRw w z sta) sml) `using` parListChunk 16 rdeepseq
       nor = catMaybes rawNor
 
       -- 2. Normalise theory
-      new = normaliseTheory w z sta nor
+      rawNew = normaliseTheory w z sta nor
       
       -- 3. Reindex new rules
       nextIdx = currentMaxIdx + 1
@@ -168,10 +169,10 @@ stepNM cfg (Stage i sig w sta sml lrg currentMaxIdx) =
       --        in zipWith reindexRule [nextIdx..] sortedRawNew `using` parListChunk 16 rseq
       --   else rawNew
       
-      sortedRawNew = sortBy (comparing (\(Rewrite _ _ _ _ sigL) -> sigL)) rawNew 
+      -- sortedRawNew = sortBy (comparing (\(Rewrite _ _ _ _ sigL) -> sigL)) rawNew 
           
       -- Evaluate the reindexing in parallel chunks
-      new = zipWith reindexRule [nextIdx..] sortedRawNew `using` parListChunk 16 rseq
+      new = zipWith reindexRule [nextIdx..] rawNew `using` parListChunk 16 rseq
       newMaxIdx = currentMaxIdx + length new
       
       -- 4. Find relative CPs using the newly indexed rules
@@ -179,12 +180,13 @@ stepNM cfg (Stage i sig w sta sml lrg currentMaxIdx) =
       
       -- 5. Filtering with respect to Buchberger's triangle lemma
       keepMask = map (not . isRedundant (sta ++ new)) rawCPs `using` parListChunk 16 rseq
-      diamondCPs = [ cp | (cp, True) <- zip rawCPs keepMask ]
+      triangleCPs = [ cp | (cp, True) <- zip rawCPs keepMask ]
+      -- cps = rawCPs
 
       -- 6. Filtering with respect to F5 
-      keepMaskF = map (not . isRedundantF5 (sta ++ new)) diamondCPs `using` parListChunk 16 rseq
-      cps = [ cp | (cp, True) <- zip diamondCPs keepMaskF ]
-      -- cps = diamondCPs
+      -- keepMaskF = map (not . isRedundantF5 (sta ++ new)) triangleCPs `using` parListChunk 16 rseq
+      -- cps = [ cp | (cp, True) <- zip triangleCPs keepMaskF ]
+      cps = triangleCPs
 
       str1 = if null new then "No new rewrite rules\n"
                          else "Newly stable rewrite rules:\n\n  " ++ intercalate "\n\n  " (map (pp sig) new)

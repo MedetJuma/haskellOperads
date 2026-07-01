@@ -22,7 +22,7 @@ count limit: 7
 #   number of instructions per chunk during parallel computations
 #   it is better to use smaller chunks for hardwares with higher runtime capabilities
 
-chunk: 2
+chunk: 16
 
 # --------------------------------------
 # Parameters for normalisation

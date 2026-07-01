@@ -20,9 +20,9 @@ count limit: 7
 
 # Chunk size 
 #   number of instructions per chunk during parallel computations
-#   it is better to use smaller chunks for hardwares with higher runtime capabilities
+#   it is recommended to use smaller chunks for machines with higher runtime capabilities
 
-chunk: 2
+chunk: 16
 
 # --------------------------------------
 # Parameters for normalisation
@@ -37,7 +37,7 @@ chunk: 2
 output: final leading
 
 # Saving a Groebner basis
-#   enter the file name
+#   enter the file name (example: GroebnerBasis.txt)
 #   leave empty for not saving in a seperate file
 save:
 

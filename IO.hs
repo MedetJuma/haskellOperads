@@ -65,7 +65,8 @@ data Config = Config {doNormalise    :: Bool,
                       getMeasure     :: Measure,
                       getSignature   :: Signature,
                       getTheory      :: THEORY,
-                      getReduce      :: Maybe THEORY
+                      getReduce      :: Maybe THEORY,
+                      getSave        :: Maybe String
                      }
 
 isLeft = \case Left _ -> True; Right _ -> False
@@ -89,6 +90,7 @@ instance Show Config where
                                    if printFinal   x then Just "final theory" else Nothing,
                                    if printLeading x then Just "leading terms only" else Nothing,
                                    if printCPs     x then Just "evaluation of critical pairs" else Nothing ])
+        p = "save file:       " ++ case getSave x of Nothing -> "none"; Just s -> s
         g = "field:          " ++ case getField x of Nothing -> "rationals"; Just i -> "integers up to " ++ show i 
         h = "operad type:    " ++ (if isSigned   x then "signed "  else "unsigned ")
                                ++ (if isShuffle  x then "shuffle " else "asymmetric ") ++ "operad"
@@ -105,7 +107,7 @@ instance Show Config where
           Right (Left  t) -> intercalate "\n\n  " (map (pp $ getSignature x) t)
           Right (Right t) -> intercalate "\n\n  " (map (pp $ getSignature x) t)
         mText = maybe "" (\r -> "reduce:\n\n  " ++ reduceText r) (getReduce x)
-      in unlines [a,b,c,d,e,f,g,q,h,i,j,k,mText]
+      in unlines [a,b,c,d,e,f,p,g,q,h,i,j,k,mText]
 
 showTime t = let h = div t 3600
                  m = rem t 3600 `div` 60
@@ -169,6 +171,13 @@ stepNM cfg (Stage i sig w sta sml lrg) =
     if printNew cfg then putStrLn str1 else return ()
     if printCPs cfg then putStrLn str2 else return ()
 
+    -- If configured, append to the save file
+    if not (null new)
+      then case getSave cfg of
+             Just fn -> appendFile fn (pp sig new ++ "\n")
+             Nothing -> return ()
+      else return ()
+    
     -- Append the indexed new rules to the stable basis
     return $ Stage i sig w (sta ++ new) [] (lrg ++ cps)
 

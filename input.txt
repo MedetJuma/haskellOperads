@@ -36,6 +36,11 @@ chunk: 2
 
 output: final leading
 
+# Saving a Groebner basis
+#   enter the file name
+#   leave empty for not saving in a seperate file
+save:
+
 # Time limit (seconds)
 #   computation will be abandoned after this time
 #   leave empty for no time limit

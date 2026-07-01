@@ -7,12 +7,9 @@ import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Perm
 
 import Control.Monad
-import Control.Arrow
-import Data.Ord
 import Data.List
 import Data.Ratio
-import Data.Maybe
-import Data.Either
+import Data.Char (isSpace)
 
 import Utils
 import OperadTree
@@ -20,10 +17,6 @@ import Signature
 import Measure
 import Polynomials
 import IO
-import PrettyPrinting
-
-import Rewriting
-import CriticalPairs
 
 
 ----------------------------
@@ -122,6 +115,14 @@ readOutput = do string "output:" >> whitespace
 readTimeLimit :: Parser (Maybe Int)
 readTimeLimit = do string "time limit:" >> whitespace
                    liftM Just readNum <|> return Nothing
+
+-- Optional save file
+readSave :: Parser (Maybe String)
+readSave = do string "save:" >> whitespace
+              fname <- many (noneOf "\n\r")
+              endOfLine
+              let f = dropWhile isSpace . reverse . dropWhile isSpace . reverse $ fname
+              return (if null f then Nothing else Just f)
 
 readArityLimit :: Parser (Maybe Int)
 readArityLimit = do string "arity limit:" >> whitespace
@@ -289,6 +290,8 @@ readConfig = do emptyLines
                 emptyLines
                 (b,c,d,leading,cp) <- readOutput
                 emptyLines
+                ssave <- readSave
+                emptyLines
                 t <- readTimeLimit
                 emptyLines
                 a <- readArityLimit
@@ -314,7 +317,7 @@ readConfig = do emptyLines
                          Right (Right _) -> liftM (Right . Right) $ verifyPolys False "reduce:" z s m
                 emptyLines
                 eof
-                return (Config n g w l q a t b c d leading cp z m s x r)
+                return (Config n g w l q a t b c d leading cp z m s x r ssave)
 
 ----------------------------
 

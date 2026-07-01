@@ -18,5 +18,8 @@ gb :: String -> IO ()
 gb input = do
   c <- readIn input
   putStrLn $ show c
+  case getSave c of
+    Just fn -> writeFile fn ""
+    Nothing -> return ()
   solve c
 

@@ -7,7 +7,7 @@ This is a modified version of the Gröbner bases for operads software created by
 3) Only printing the leading terms of newly added stable pairs (leading),
 4) Saving new stable pairs in a custom file (save).
 
-## Instructions:
+## Instructions
 
 To install the program, you may clone the GitHub directory by either clicking the green "Code" button on the upper right corner of the main page of the repository, or by entering the following command in the terminal:
 

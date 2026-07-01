@@ -2,11 +2,8 @@
 
 module IO where
 
-import Control.Monad
-import Data.Ord
 import Data.List
 import Data.Maybe
-import Text.Printf
 import System.Timeout
 import System.CPUTime
 import Control.DeepSeq
@@ -15,7 +12,6 @@ import Control.Parallel.Strategies
 import Utils
 import Signature
 import OperadTree
-import Operations
 import Generation
 import Polynomials
 import Measure
@@ -31,8 +27,7 @@ data Stage a = Stage {size          :: Int,
                       weights       :: Weighting,
                       stable        :: [Rewrite a],
                       small         :: [CriticalPair a],
-                      large         :: [CriticalPair a],
-                      currentMaxIdx :: Int
+                      large         :: [CriticalPair a]
                       }
 
 instance Arity (Stage a) where
@@ -58,11 +53,13 @@ data Config = Config {doNormalise    :: Bool,
                       doCount        :: Bool,
                       doStageCount   :: Bool,
                       countArity     :: Int,
+                      getChunks      :: Int,
                       breakArity     :: Maybe Int,
                       breakTime      :: Maybe Int,
                       printInit      :: Bool,
                       printNew       :: Bool,
                       printFinal     :: Bool,
+                      printLeading   :: Bool,
                       printCPs       :: Bool,
                       getField       :: Field,
                       getMeasure     :: Measure,
@@ -83,13 +80,15 @@ instance Show Config where
                                ++ (if doCount x then "count " else "")
                                ++ (if doStageCount x then "stageCount " else "")
         c = "count limit:    " ++ show (countArity x)
+        q = "chunks:         " ++ show (getChunks x)
         d = "arity limit:    " ++ case breakArity x of Just i -> show i; Nothing -> "none"
         e = "time limit:     " ++ case breakTime  x of Just i -> showTime i; Nothing -> "none"
         f = "output:         " ++ intercalate "\n                " (mapMaybe id [
-                                   if printInit  x then Just "initial theory" else Nothing, 
-                                   if printNew   x then Just "newly stable rewrite rules" else Nothing,
-                                   if printFinal x then Just "final theory" else Nothing,
-                                   if printCPs   x then Just "evaluation of critical pairs" else Nothing ])
+                                   if printInit    x then Just "initial theory" else Nothing, 
+                                   if printNew     x then Just "newly stable rewrite rules" else Nothing,
+                                   if printFinal   x then Just "final theory" else Nothing,
+                                   if printLeading x then Just "leading terms only" else Nothing,
+                                   if printCPs     x then Just "evaluation of critical pairs" else Nothing ])
         g = "field:          " ++ case getField x of Nothing -> "rationals"; Just i -> "integers up to " ++ show i 
         h = "operad type:    " ++ (if isSigned   x then "signed "  else "unsigned ")
                                ++ (if isShuffle  x then "shuffle " else "asymmetric ") ++ "operad"
@@ -106,7 +105,7 @@ instance Show Config where
           Right (Left  t) -> intercalate "\n\n  " (map (pp $ getSignature x) t)
           Right (Right t) -> intercalate "\n\n  " (map (pp $ getSignature x) t)
         mText = maybe "" (\r -> "reduce:\n\n  " ++ reduceText r) (getReduce x)
-      in unlines [a,b,c,d,e,f,g,h,i,j,k,mText]
+      in unlines [a,b,c,d,e,f,g,q,h,i,j,k,mText]
 
 showTime t = let h = div t 3600
                  m = rem t 3600 `div` 60
@@ -121,129 +120,65 @@ showTime t = let h = div t 3600
 
 -- rewrite theory + printing 
 initialise :: (Rewriting a, PPrint a, NFData a, NFData (Poly a)) => Config -> [Poly a] -> IO (Stage a)
-initialise cfg ps = -- maybe it's possible to just pass ps or just cfg?
+initialise cfg ps =
   let sig = getSignature cfg
       w   = weighting sig
-      -- rws = rewritten rules (rewrites)
-      rws = zipWith assignInitialSignature [1..]
-            $ normaliseTheory w (getField cfg) [] (mapMaybe (polyToRw $ getField cfg) ps)
-      -- lrg = large queued critical pairs
+      rws = normaliseTheory w (getField cfg) (getChunks cfg) [] (mapMaybe (polyToRw $ getField cfg) ps)
       lrg = selfCPs rws
-      currentMaxIdx = length rws
-      str = "Initial rewrite theory:\n\n  " ++ pp sig rws
+      str = "Initial rewrite theory:\n\n  " ++ ppRewrites (printLeading cfg) sig rws
   in do if printInit cfg then putStrLn str else return ()
-        return (Stage 0 sig w rws [] lrg currentMaxIdx)
-  where
-    assignInitialSignature i (Rewrite t m p _ _) = Rewrite t m p (znleaves (arity t), m, 1) i
+        return (Stage 0 sig w rws [] lrg)
 
 
--- berilgen polynomdardy ulken kishi dep bolu.
 stepCP :: (Rewriting a, PPrint a) => Stage a -> IO (Stage a)
-stepCP (Stage i sig w sta [] cps currentMaxIdx) =
+stepCP (Stage i sig w sta [] cps) =
   putStrLn str >> printSizes "stepCP" st' >> return st'
   where
     n = if null cps then i else minimum (map arity cps)
-    (sml,lrg) = partition ((==n) . arity) cps -- if arity is greater than n, it's large 
+    (sml,lrg) = partition ((==n) . arity) cps
     str = "\nArity: " ++ show n ++
       "   Stable rewrite rules: "   ++ show (length sta) ++
-      "   Current critical pairs: " ++ show (length sml) ++ -- sml = small (current)
+      "   Current critical pairs: " ++ show (length sml) ++ 
       "   Queued critical pairs: "  ++ show (length lrg) ++ "\n"
-    st' = Stage n sig w sta sml lrg currentMaxIdx
+    st' = Stage n sig w sta sml lrg
 
 
--- barlyk esepteuler osynda
 stepNM :: (Rewriting a, PPrint a, NFData a) => Config -> Stage a -> IO (Stage a)
-stepNM cfg (Stage i sig w sta sml lrg currentMaxIdx) =
+stepNM cfg (Stage i sig w sta sml lrg) =
   let z   = getField cfg
-      -- 1. Evaluate and normalise in parallel 
-
-      rawNor = (map (\cp -> evaluateCPRw w z cp >>= normaliseRw w z sta) sml) `using` parListChunk 16 rdeepseq
+      -- 1. Evaluate and normalise in parallel
+      chunks = getChunks cfg
+      rawNor = (map (\cp -> evaluateCPRw w z cp >>= normaliseRw w z sta) sml) `using` parListChunk chunks rdeepseq
       nor = catMaybes rawNor
 
       -- 2. Normalise theory
-      rawNew = normaliseTheory w z sta nor
+      new = normaliseTheory w z chunks sta nor
       
-      -- 3. Reindex new rules
-      nextIdx = currentMaxIdx + 1
-
-      -- new = if nextIdx <= 300
-      --   then let sortedRawNew = sortBy (comparing (\(Rewrite _ _ _ _ sigL) -> sigL)) rawNew
-      --        in zipWith reindexRule [nextIdx..] sortedRawNew `using` parListChunk 16 rseq
-      --   else rawNew
-      
-      -- sortedRawNew = sortBy (comparing (\(Rewrite _ _ _ _ sigL) -> sigL)) rawNew 
-          
-      -- Evaluate the reindexing in parallel chunks
-      new = zipWith reindexRule [nextIdx..] rawNew `using` parListChunk 16 rseq
-      newMaxIdx = currentMaxIdx + length new
-      
-      -- 4. Find relative CPs using the newly indexed rules
+      -- 3. Find relative CPs using the newly indexed rules
       rawCPs = relativeCPs sta new ++ selfCPs new
       
-      -- 5. Filtering with respect to Buchberger's triangle lemma
-      keepMask = map (not . isRedundant (sta ++ new)) rawCPs `using` parListChunk 16 rseq
-      triangleCPs = [ cp | (cp, True) <- zip rawCPs keepMask ]
-      -- cps = rawCPs
-
-      -- 6. Filtering with respect to F5 
-      -- keepMaskF = map (not . isRedundantF5 (sta ++ new)) triangleCPs `using` parListChunk 16 rseq
-      -- cps = [ cp | (cp, True) <- zip triangleCPs keepMaskF ]
-      cps = triangleCPs
+      -- 4. Filtering with respect to the triangle lemma
+      keepMask = map (not . isRedundant (sta ++ new)) rawCPs `using` parListChunk chunks rseq
+      cps = [ cp | (cp, True) <- zip rawCPs keepMask ]
 
       str1 = if null new then "No new rewrite rules\n"
-                         else "Newly stable rewrite rules:\n\n  " ++ intercalate "\n\n  " (map (pp sig) new)
+                         else "Newly stable rewrite rules:\n\n  " ++ ppRewrites (printLeading cfg) sig new
       str2 = unlines $ zipWith f sml nor
       f s1 s2 = pp sig s1 ++ "\n    resolves to:\n" ++ pp sig s2 ++ "\n"
   in do
     if printNew cfg then putStrLn str1 else return ()
     if printCPs cfg then putStrLn str2 else return ()
 
-    -- Append the correctly indexed new rules to the stable basis
-    return $ Stage i sig w (sta ++ new) [] (lrg ++ cps) newMaxIdx
-  where
-    reindexRule j (Rewrite t m p sigM _) = Rewrite t m p sigM j
-
--- stepNM :: (Rewriting a, PPrint a, Eq a) => Config -> Stage a -> IO (Stage a)
--- stepNM cfg (Stage i sig w sta sml lrg) = -- Buchberger algorithm step
---   let z   = getField cfg
---       -- evaluateCP is computing the S polynomials
---       -- evaluateCP -> S-polynomdardy esepteu (~ 100 operations)
---       -- normalise -> polynomdar jyinyn kyskartu (~10 ^ 4 operations)
---       processCPs [] evalOps normOps = ([], evalOps, normOps)
---       processCPs (cp:cps') evalOps normOps =
---         let (poly', evalOps1) = evaluateCPCount w z cp
---             (poly'', normOps1) = normaliseCount w z sta poly'
---             (rest, evalOps', normOps') = processCPs cps' (evalOps + evalOps1) (normOps + normOps1)
---         in (poly'' : rest, evalOps', normOps')
---       activeSml = filter (not . isRedundant sta) sml
---       (nor, evalCount, normaliseOps) = processCPs activeSml 0 0
---       (new, normaliseTheoryOps) = normaliseTheoryCount w z sta $ mapMaybe (polyToRw z) nor
---       (relativeCps, relativeCpCount) = relativeCPsCount sta new
---       rawCPs = relativeCps ++ selfCPs new
---       -- filter redundant critical pairs according to Buchberger's triangle lemma
---       cps = filter (not . isRedundant (sta ++ new)) rawCPs
---       diagRedundant = length sml - length activeSml
---       diagQueue = length rawCPs - length cps
---       str1 = if null new then "No new rewrite rules\n"
---                          else "Newly stable rewrite rules:\n\n  " ++ intercalate "\n\n  " (map (pp sig) new)
---       str2 = unlines $ zipWith f sml nor
---       f s1 s2 = pp sig s1 ++ "\n    resolves to:\n" ++ pp sig s2 ++ "\n"
---       st' = Stage i sig w (sortBy (comparing (\(_,_,p) -> length p)) $ sta ++ new) [] (lrg ++ cps)
---   in do if printNew cfg then putStrLn str1 else return ()
---         if printCPs cfg then putStrLn str2 else return ()
---         printOpCounts "stepNM" evalCount normaliseOps normaliseTheoryOps relativeCpCount
---         putStrLn $ "  [redundancy filter: " ++ show diagRedundant ++ " small filtered, " ++ show diagQueue ++ " queued filtered]"
---         printSizes "stepNM" st' >> return st'
-
+    -- Append the indexed new rules to the stable basis
+    return $ Stage i sig w (sta ++ new) [] (lrg ++ cps)
 
 stop :: (Rewriting a, PPrint a) => Config -> Stage a -> Maybe String
-stop cfg st | null (small st) && null (large st) = --naturally if small and large are null, we stop
+stop cfg st | null (small st) && null (large st) =
                 Just ("Success!" 
-                      -- ++ if printFinal cfg then " Complete theory: \n\n  " ++ pp (signature st) (stable st) else "" )
-                      ++ if printFinal cfg then " Complete theory: \n\n  " ++ pp (signature st) (stable st) else "" )
+                      ++ if printFinal cfg then " Complete theory: \n\n  " ++ ppRewrites (printLeading cfg) (signature st) (stable st) else "" )
             | Just i <- breakArity cfg, arity st >= i = 
                 Just ("Stopped at arity " ++ show (arity st) ++ "."
-                      ++ if printFinal cfg then " Theory thus far: \n\n  " ++ pp (signature st) (stable st) else "" )
+                      ++ if printFinal cfg then " Theory thus far: \n\n  " ++ ppRewrites (printLeading cfg) (signature st) (stable st) else "" )
             | otherwise = Nothing
 
 
@@ -260,7 +195,7 @@ loop cfg st = case stop cfg st of
 timedLoop :: (Rewriting a, PPrint a, NFData a, NFData (Poly a), Memoizable a) => Config -> Integer -> Stage a -> IO (Stage a)
 timedLoop cfg t1 st = 
   let str = ("Timed out at arity " ++ show (arity st) ++ "." ++ 
-             if printFinal cfg then " Theory thus far: \n\n" ++ pp (signature st) (stable st) else "")
+             if printFinal cfg then " Theory thus far: \n\n" ++ ppRewrites (printLeading cfg) (signature st) (stable st) else "")
   in case stop cfg st of
        Just str -> putStrLn str >> return st
        Nothing  -> do t0 <- getCPUTime
@@ -277,45 +212,17 @@ timedLoop cfg t1 st =
   
 
 solve_ :: (Rewriting a, PPrint a, NFData a, NFData (Poly a), Eq a, Memoizable a) => Config -> Maybe [Poly a] -> [Poly a] -> IO ()
--- cfg = configurations
--- st = stage (groebner basis so far)
--- ps = polynomials
-solve_ cfg mReduce ps = do
-  st0 <- initialise cfg ps -- initialise configurations and polynomials
+solve_ cfg _ ps = do
+  st0 <- initialise cfg ps
   stn <- if doNormalise cfg
          then case breakTime cfg of
                 Nothing -> loop cfg st0
                 Just i  -> do t0 <- getCPUTime
                               timedLoop cfg (t0 + (fromIntegral i * 10^12)) st0
          else return st0
-  case mReduce of
-    Nothing -> return ()
-    Just rs -> do
-      let sig = signature stn
-          w   = weights stn
-          z   = getField cfg
-          reducePoly p = reduceByTheory w z (stable stn) p
-          pairs = zip rs (map reducePoly rs)
-      putStrLn "\nReduced tree(s):\n"
-      putStrLn $ intercalate "\n\n" [ "  " ++ pp sig p ++ "\n    ->  " ++ pp sig q | (p,q) <- pairs ]
-  if doCount cfg -- doCount is a Boolean in Configuration cfg
-  then generate (isShuffle cfg) (countArity cfg) stn -- count normal forms
+  if doCount cfg
+  then generate (isShuffle cfg) (countArity cfg) stn
   else return ()
-
-reduceByTheory :: (Rewriting a, Eq a) => Weighting -> Field -> [Rewrite a] -> Poly a -> Poly a
-reduceByTheory w z rws p =
-  let nf = normalise w z rws p
-  in if nf /= canonical z p
-        then negatePoly z nf
-   else case p of
-     [(t,_,_)] -> maybe nf (negatePoly z) (solveRuleForTree z t rws)
-     _         -> nf
-
-negatePoly :: Field -> Poly a -> Poly a
-negatePoly z = map (\(t,m,i) -> (t,m,neg_ z i))
-
-solveRuleForTree :: (OperadTree a, Eq a) => Field -> a -> [Rewrite a] -> Maybe (Poly a)
-solveRuleForTree z target rws = listToMaybe $ mapMaybe (isolateTarget z target . rwToPoly z) rws
 
 isolateTarget :: Eq a => Field -> a -> Poly a -> Maybe (Poly a)
 isolateTarget z target poly = do
@@ -357,7 +264,7 @@ matchReduceATS = \case
   _ -> Nothing
 
 generate :: (Rewriting a, PPrint a, NFData a, Memoizable a) => Bool -> Int -> Stage a -> IO ()
-generate b i st = --(b -> Shuffle or not), (i -> count arity), (st) -> Groebner basis
+generate b i st =
   do putStrLn "\nCounting normal forms:\n\n  arity | normal forms"
      if b then write $ normalShuffleTreesUpto (signature st) ts i
           else write $ normalTreesUpto (signature st) ts i

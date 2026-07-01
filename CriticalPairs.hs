@@ -24,16 +24,14 @@ data Rewrite a = Rewrite
   { rwTree      :: a
   , rwMeasure   :: Measure
   , rwPoly      :: Poly a
-  , signatureM  :: Mono a
-  , signatureL  :: Int
   } deriving (Eq, Show, Generic, NFData)
 
 
 rwToPoly :: OperadTree a => Field -> Rewrite a -> Poly a
-rwToPoly z (Rewrite t r ps _ _) = [(t,r,1)] ++ map (\(x,y,i) -> (x,y,neg_ z i)) ps 
+rwToPoly z (Rewrite t r ps) = [(t,r,1)] ++ map (\(x,y,i) -> (x,y,neg_ z i)) ps 
 
 polyToRw :: OperadTree a => Field -> Poly a -> Maybe (Rewrite a)
-polyToRw z p = case canonical z p of [] -> Nothing; ((t,m,_):q) -> Just (Rewrite t m (map (\(x,y,i) -> (x,y,neg_ z i)) q) (t,m,1) 0)
+polyToRw z p = case canonical z p of [] -> Nothing; ((t,m,_):q) -> Just (Rewrite t m (map (\(x,y,i) -> (x,y,neg_ z i)) q))
 
 
 
@@ -122,20 +120,13 @@ scm2_ b s t = let m = arity s
               in [ (relabel f r,is) | (r,is,xs) <- scm1_ b s u, f <- merge [1..m] [m+1..m+n] xs]
               -- relabel is adding all possible labelings on a skeleton
 
-
-
-
-
-
 -- Critical Pairs
 
-data CriticalPair a = CP {arityCP    :: Int,
-                          cm         :: a, -- the common multiple
-                          other      :: Pos, -- the vertex in the common multiple where the second rule is applied
-                          rwRoot     :: Rewrite a, -- the first rewrite rule
-                          rwOther    :: Rewrite a, -- the second rewrite rule
-                          signatureM :: Mono a, -- the monomial of the critical pair
-                          signatureL :: Int        -- the signature index of the critical pair
+data CriticalPair a = CP {arityCP :: Int,
+                          cm      :: a, -- the common multiple
+                          other   :: Pos, -- the vertex in the common multiple where the second rule is applied
+                          rwRoot  :: Rewrite a, -- the first rewrite rule
+                          rwOther :: Rewrite a  -- the second rewrite rule
 }
 
 instance Arity (CriticalPair a) where
@@ -147,49 +138,17 @@ instance Arity (CriticalPair a) where
 --   (these are compared only in one direction, and not at the root)
 
 criticalPairs :: (CriticalPairs a, Operations a) => Bool -> Rewrite a -> Rewrite a -> [CriticalPair a]
-criticalPairs b r1@(Rewrite t1 _ _ _ _) r2@(Rewrite t2 _ _ _ _) = (if b then [] else
+criticalPairs b r1@(Rewrite t1 _ _) r2@(Rewrite t2 _ _) = (if b then [] else
    [ mkCP r1 r2 s p | (s,p) <- scm True  t1 t2]) ++ 
    [ mkCP r2 r1 s p | (s,p) <- scm False t2 t1]
   where
     mkCP root otherRule s p = CP
-      { arityCP    = arity s
-      , cm         = s
-      , other      = p
-      , rwRoot     = root
-      , rwOther    = otherRule
-      , signatureM = fst (criticalPairSignature root otherRule s p)
-      , signatureL = snd (criticalPairSignature root otherRule s p)
+      { arityCP = arity s
+      , cm      = s
+      , other   = p
+      , rwRoot  = root
+      , rwOther = otherRule
       }
-      
-
-    -- Pattern match here to extract rootSigL and otherSigL unambiguously
-    criticalPairSignature root@(Rewrite _ _ _ _ rootSigL) otherRule@(Rewrite _ _ _ _ otherSigL) cmTree p =
-      let sigRoot  = (liftSignature root cmTree, rootSigL)
-          sigOther = (liftSignatureOther otherRule cmTree p, otherSigL)
-      in if comparePOT sigRoot sigOther == GT
-            then sigRoot
-            else sigOther
-
-    comparePOT (m1, l1) (m2, l2) = 
-      case compare l1 l2 of
-        EQ  -> compare m1 m2
-        res -> res
-
-    -- Pattern match to extract 'tree' and 'sigM'
-    liftSignature (Rewrite tree _ _ sigM _) cmTree =
-      case divide0 cmTree tree >>= divide1 of
-        Just ts -> let (sigTree, sigMeasure, sigScalar) = sigM
-                   in (graft ts sigTree, sigMeasure, sigScalar)
-        Nothing -> error "liftSignature: division failed"
-
-    -- Pattern match to extract 'tree' and 'sigM'
-
-    liftSignatureOther (Rewrite tree _ _ sigM _) cmTree pos =
-      let (s_pos, g) = splitat pos cmTree  -- 1. Capture the context 'g'
-      in case divide0 s_pos tree >>= divide1 of
-          Just ts -> let (sigTree, sigMeasure, sigScalar) = sigM
-                      in (g (graft ts sigTree), sigMeasure, sigScalar) -- 2. Apply 'g'
-          Nothing -> error "liftSignatureOther: division failed"
 
 -- Find critical pairs of <theory1> with <theory2> 
 
@@ -206,27 +165,6 @@ selfCPs :: (CriticalPairs a, Operations a) => [Rewrite a] -> [CriticalPair a]
 selfCPs = \case [] -> []
                 x:xs -> criticalPairs True x x ++ concatMap (criticalPairs False x) xs ++ selfCPs xs
 
-
--- Test whether a rewrite rule divides a tree (helper for redundancy checks)
--- divides :: Operations a => Rewrite a -> a -> Bool
--- divides (d,_,_) t = any (\(s,_) -> isJust (divide0 s d >>= divide1)) (splits t)
-
--- Buchberger's triangle lemma: a critical pair is redundant if there
--- exists a rewrite rule c in the given list such that c's left-hand side
--- is not the same as the root or other rule's left-hand side, and c
--- divides the common multiple `cm` of cp.
-
--- !!ONLY THE FIRST CONDITION IS CHECKED. Durys emes degen soz, janadan jazaiyk
--- isRedundant :: (Operations a, Eq a) => [Rewrite a] -> CriticalPair a -> Bool
--- isRedundant rws cp = any check rws
---   where
---     (rootL,_,_)  = rwRoot cp
---     (otherL,_,_) = rwOther cp
---     rootReset  = reset rootL
---     otherReset = reset otherL
---     check rw@(t,_,_) = let tR = reset t
---                        in tR /= rootReset && tR /= otherReset && divides rw (cm cp)
-
 -- Check if one tree structurally divides another
 treeDivides :: Operations a => a -> a -> Bool
 treeDivides d t = any (\(s,_) -> isJust (divide0 s d >>= divide1)) (splits t)
@@ -239,8 +177,8 @@ properDivides d t = treeDivides d t && reset d /= reset t
 isRedundant :: (Operations a, CriticalPairs a, Eq a) => [Rewrite a] -> CriticalPair a -> Bool
 isRedundant rws cp = any check rws
   where
-    Rewrite rootL _ _ _ _  = rwRoot cp
-    Rewrite otherL _ _ _ _ = rwOther cp
+    Rewrite rootL _ _  = rwRoot cp
+    Rewrite otherL _ _ = rwOther cp
     cmT          = cm cp
     
     rootReset  = reset rootL
@@ -249,7 +187,7 @@ isRedundant rws cp = any check rws
     -- Generates all possible common multiples between trees t1 and t2
     allCommonMultiples t1 t2 = map fst (scm True t1 t2) ++ map fst (scm False t2 t1)
     
-    check (Rewrite t3 _ _ _ _) = 
+    check (Rewrite t3 _ _) = 
       let t3Reset = reset t3
       in t3Reset /= rootReset && 
          t3Reset /= otherReset && 
@@ -263,37 +201,3 @@ isRedundant rws cp = any check rws
          
          -- Exists a common multiple T'' of (t3, otherL) that properly divides cmT
          any (`properDivides` cmT) (allCommonMultiples t3 otherL)
-
--- Faugere's F5 criterion for operads
-isRedundantF5 :: (Operations a, CriticalPairs a, Eq a) => [Rewrite a] -> CriticalPair a -> Bool
-isRedundantF5 rws cp = any check rws
-  where
-    CP _ _ _ (Rewrite rootL _ _ _ _) (Rewrite otherL _ _ _ _) sigM sigL = cp
-    cmT = cm cp
-    sigTree = fromMono sigM
-    
-    rootReset  = reset rootL
-    otherReset = reset otherL
-    
-    allCommonMultiples t1 t2 = map fst (scm True t1 t2) ++ map fst (scm False t2 t1)
-
-    check (Rewrite t3 _ _ _ ind3) = 
-      let t3Reset = reset t3
-      in t3Reset /= rootReset && 
-         t3Reset /= otherReset && 
-         
-         -- 1. F5 index comparison
-         (ind3 < sigL) && 
-         
-         -- 2. F5 Divison 
-         properDivides t3 sigTree -- &&
-         
-        -- 3. Dotsenko-Khoroshkin type condition???
-        --  any (`properDivides` cmT) (allCommonMultiples rootL t3) &&
-        --  any (`properDivides` cmT) (allCommonMultiples t3 otherL)
-
--- Execute as follows
--- cabal run OperadsHaskell1 -- +RTS -N4 -qa -A64m
--- -A64m garbage collector 64 Mb
--- -qa pins specific threads. One can also use taskset 0, 1, 2, 3, ...
--- -N4 runs on the program 4 cores

@@ -54,15 +54,23 @@ instance PPrint a => PPrint [Poly a] where
   pp sig ps = intercalate "\n" (map (pp sig) ps)
 
 instance PPrint a => PPrint (Rewrite a) where
-  pp sig (Rewrite r _ ps sigM sigL) =
-    pp sig r ++ "  ->  " ++ pp sig ps-- ++
-    --"  [sigM " ++ ppSignatureM sig sigM ++ ", sigL " ++ show sigL ++ "]"
+  pp sig (Rewrite r _ ps) =
+    pp sig r ++ "  ->  " ++ pp sig ps
+
+ppRewrite :: PPrint a => Bool -> Signature -> Rewrite a -> String
+ppRewrite leading sig (Rewrite r _ ps) =
+  if leading
+    then pp sig r
+    else pp sig r ++ "  ->  " ++ pp sig ps
+
+ppRewrites :: PPrint a => Bool -> Signature -> [Rewrite a] -> String
+ppRewrites leading sig = intercalate "\n\n  " . map (ppRewrite leading sig)
 
 instance PPrint a => PPrint [Rewrite a] where
   pp sig xs = intercalate "\n\n  " (map (pp sig) xs)
 
 instance PPrint a => PPrint (CriticalPair a) where
-  pp sig (CP _ t pos r1 r2 _ _) =
+  pp sig (CP _ t pos r1 r2) =
     let t' = pp sig t
         p' = "pos: " ++ intercalate "." (map show pos)
         l  = length t' - length p'

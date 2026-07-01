@@ -1,5 +1,3 @@
--- Erejelerdi basiske katysty kyskartu, ozine katysty kyskartu
-
 module Rewriting where
 
 import Control.Arrow
@@ -55,12 +53,12 @@ divide0Count t d = case splitVertex d of
   _ -> (Nothing, 1)
 
 rewrite0_ :: (Operations a, OperadTree a) => Weighting -> Field -> Rewrite a -> a -> (a -> a) -> Scalar -> Maybe (Poly a)
-rewrite0_ w z (Rewrite d _ poly _ _) t f i = case divide0 t d >>= divide1 of
+rewrite0_ w z (Rewrite d _ poly) t f i = case divide0 t d >>= divide1 of
                                    Just ts -> let g (u,m,j) = let s = f $ graft ts u in (s, measure w s m, mul_ z i j) in Just $ map g poly
                                    Nothing -> Nothing
 
 rewrite0_S :: (Signed a, OperadTree a) => Weighting -> Field -> Rewrite a -> a -> (a -> a) -> Scalar -> Maybe (Poly a)
-rewrite0_S w z (Rewrite d _ poly _ _) t f i = let ts0 = divide0 t d in
+rewrite0_S w z (Rewrite d _ poly) t f i = let ts0 = divide0 t d in
   case ts0 >>= divide1 of
       Just ts -> let b         = divisionSign0 t d /= divisionSign1 (fromJust ts0)
                      g (u,m,j) = let v = graft ts u; s = f v in (s, measure w s m, mul_ z i $ mul_ z j $ sign z (b /= divisionSign v u))
@@ -68,7 +66,7 @@ rewrite0_S w z (Rewrite d _ poly _ _) t f i = let ts0 = divide0 t d in
       Nothing -> Nothing
 
 rewrite0Count :: Rewriting a => Weighting -> Field -> Rewrite a -> a -> (a -> a) -> Scalar -> (Maybe (Poly a), Int)
-rewrite0Count w z rw@(Rewrite d _ poly _ _) t f i =
+rewrite0Count w z rw@(Rewrite d _ poly) t f i =
   let (_res, c0) = divide0Count t d
       c1 = 1
       cPoly = length poly
@@ -76,10 +74,10 @@ rewrite0Count w z rw@(Rewrite d _ poly _ _) t f i =
   in (output, c0 + c1 + cPoly)
 
 copySignature :: Rewrite a -> Rewrite a -> Rewrite a
-copySignature (Rewrite t m p _ _) (Rewrite _ _ _ sigM sigL) = Rewrite t m p sigM sigL
+copySignature (Rewrite t m p) (Rewrite _ _ _) = Rewrite t m p
 
 copySignatureL :: Rewrite a -> Rewrite a -> Rewrite a
-copySignatureL (Rewrite t m p sigM _) (Rewrite _ _ _ _ sigL) = Rewrite t m p sigM sigL
+copySignatureL (Rewrite t m p) (Rewrite _ _ _) = Rewrite t m p
 
 
 ---------------
@@ -87,7 +85,7 @@ copySignatureL (Rewrite t m p sigM _) (Rewrite _ _ _ _ sigL) = Rewrite t m p sig
 -- Rewrite a monomial
 
 rewriteMono :: Rewriting a => Weighting -> Field -> Rewrite a -> Mono a -> Maybe (Poly a)
-rewriteMono w z rw@(Rewrite d _ _ _ _) (t,_,i) = let f (s,g) = rewrite0 w z rw s g i
+rewriteMono w z rw@(Rewrite d _ _) (t,_,i) = let f (s,g) = rewrite0 w z rw s g i
                                      in listToMaybe . mapMaybe f $ splitsUpto (depth d) t
 
 -- Rewrite a polynomial
@@ -96,7 +94,7 @@ rewritePoly :: Rewriting a => Weighting -> Field -> Rewrite a -> Poly a -> Maybe
 rewritePoly w z rw = let f (p,m,q) = liftM ((p++).(++q)) $ rewriteMono w z rw m in listToMaybe . mapMaybe f . foci
 
 rewriteMonoCount :: Rewriting a => Weighting -> Field -> Rewrite a -> Mono a -> (Maybe (Poly a), Int)
-rewriteMonoCount w z rw@(Rewrite d _ _ _ _) (t,_,i) = -- 28 operations (divisibility etc)
+rewriteMonoCount w z rw@(Rewrite d _ _) (t,_,i) = -- 28 operations (divisibility etc)
   let go [] cnt = (Nothing, cnt)
       go ((s,g):xs) cnt =
         let (res, c) = rewrite0Count w z rw s g i
@@ -177,41 +175,18 @@ normaliseRwFlag w z rws r = -- the whole thing depends on "rewrites"
 -- Normalise a set of rewrites w.r.t. itself (plus a theory)
 --   Rewrites expected normal w.r.t. theory
 
-normaliseTheory :: (Rewriting a, NFData a, NFData (Poly a)) => Weighting -> Field -> [Rewrite a] -> [Rewrite a] -> [Rewrite a]
-normaliseTheory w z imm mut = f mut [] where
+normaliseTheory :: (Rewriting a, NFData a, NFData (Poly a)) => Weighting -> Field -> Int -> [Rewrite a] -> [Rewrite a] -> [Rewrite a]
+normaliseTheory w z chunks imm mut = f mut [] where
   f []     ys = ys
   f (r:rs) ys = 
     case normaliseRw w z (imm++ys) r of
       Nothing -> f rs ys
       Just s  -> let 
-                     results = map (normaliseRwFlag w z [s]) ys `using` parBuffer 16 rdeepseq
+                     results = map (normaliseRwFlag w z [s]) ys `using` parBuffer chunks rdeepseq
                      
                      xs = [ r' | (False, Just r') <- results ]
                      zs = [ r' | (True,  Just r') <- results ]
                  in f (xs ++ rs) (s : zs)
-
--- normaliseTheory :: Rewriting a => Weighting -> Field -> [Rewrite a] -> [Rewrite a] -> [Rewrite a]
--- normaliseTheory w z imm mut = f mut [] where
---   f []     ys = ys
---   f (r:rs) ys = 
---     case normaliseRw w z (imm++ys) r of
---       Nothing -> f rs ys
---       Just s  -> let (xs,zs) = partition (not . fst) $ map (normaliseRwFlag w z [s]) ys
---                  in f (mapMaybe id (map snd xs) ++ rs) (s : mapMaybe id (map snd zs)) 
-
--- normaliseTheoryCount :: Rewriting a => Weighting -> Field -> [Rewrite a] -> [Rewrite a] -> ([Rewrite a], Int)
--- normaliseTheoryCount w z imm mut = f mut [] 0 where
---   f [] ys cnt = (ys, cnt)
---   f (r:rs) ys cnt =
---     let ((_, mr), cnt1) = normaliseRwFlagCount w z (imm ++ ys) r
---     in case mr of
---          Nothing -> f rs ys cnt1
---          Just s  -> let (cnt2, flags) = mapAccumL (\acc y -> let (res, acc') = normaliseRwFlagCount w z [s] y in (acc', res)) cnt1 ys
---                         xs = [ r' | (False, Just r') <- flags ]
---                         zs = [ r' | (True,  Just r') <- flags ]
---                     in f (xs ++ rs) (s : zs) cnt2
-
-
 
 -- Test for indivisibility 
 
@@ -223,21 +198,10 @@ isNormal rs ps = null $ catMaybes [ divide0 s (rwTree r) | r <- rs, (t,_,_) <- p
 -- The polynomial induced by a critical pair
 
 evaluateCP :: Rewriting a => Weighting -> Field -> CriticalPair a -> Poly a
-evaluateCP w z (CP _ t pos r1 r2 _ _) = let (s,g) = splitat pos t 
+evaluateCP w z (CP _ t pos r1 r2) = let (s,g) = splitat pos t 
                                     in fromJust (rewrite0 w z r1 t id 1)
                                          ++ map (\(x,y,i) -> (x,y,neg_ z i)) (fromJust $ rewrite0 w z r2 s g 1)
 
 evaluateCPRw :: Rewriting a => Weighting -> Field -> CriticalPair a -> Maybe (Rewrite a)
-evaluateCPRw w z cp@(CP _ _ _ _ _ sigM sigL) =
-  fmap (\(Rewrite t m p _ _) -> Rewrite t m p sigM sigL) (polyToRw z (evaluateCP w z cp))
-
---      let normalized = normalise w z rws p
---       in (False, fmap (flip copySignatureL r) (polyToRw z normalized))
-
--- evaluateCPCount :: Rewriting a => Weighting -> Field -> CriticalPair a -> (Poly a, Int)
--- evaluateCPCount w z (CP _ t pos r1 r2) =
---   let (s,g) = splitat pos t
---       (p1, c1) = rewrite0Count w z r1 t id 1
---       (p2orig, c2) = rewrite0Count w z r2 s g 1
---       p2 = map (\(x,y,i) -> (x,y,neg_ z i)) (fromJust p2orig)
---   in (fromJust p1 ++ p2, c1 + c2)
+evaluateCPRw w z cp =
+  fmap (\(Rewrite t m p) -> Rewrite t m p) (polyToRw z (evaluateCP w z cp))

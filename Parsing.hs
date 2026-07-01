@@ -107,13 +107,17 @@ readCountLimit :: Parser Int
 readCountLimit = do string "count limit:" >> whitespace
                     readNum <|> return 0
 
+readChunk :: Parser Int
+readChunk = do string "chunk:" >> whitespace
+               readNum <|> return 1
 
-readOutput :: Parser (Bool,Bool,Bool,Bool)
+readOutput :: Parser (Bool,Bool,Bool,Bool,Bool)
 readOutput = do string "output:" >> whitespace
-                permute $ (,,,) <$?> (False, string "initial"    >> whitespace_ True)
-                                <|?> (False, string "new"        >> whitespace_ True)
-                                <|?> (False, string "final"      >> whitespace_ True)
-                                <|?> (False, string "evaluation" >> whitespace_ True)
+                permute $ (,,,,) <$?> (False, string "initial"    >> whitespace_ True)
+                                 <|?> (False, string "new"        >> whitespace_ True)
+                                 <|?> (False, string "final"      >> whitespace_ True)
+                                 <|?> (False, string "leading"    >> whitespace_ True)
+                                 <|?> (False, string "evaluation" >> whitespace_ True)
 
 readTimeLimit :: Parser (Maybe Int)
 readTimeLimit = do string "time limit:" >> whitespace
@@ -188,8 +192,6 @@ readField = do string "field:"
                  where f i = if i `elem` [1,2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97]
                                 then return (Just i)
                                 else fail "only prime integer fields below 100 are supported"
-
-----------------------------
 
 -- Trees
 
@@ -283,13 +285,15 @@ readConfig = do emptyLines
                 emptyLines
                 l <- readCountLimit
                 emptyLines
-                (b,c,d,e) <- readOutput
+                q <- readChunk
+                emptyLines
+                (b,c,d,leading,cp) <- readOutput
                 emptyLines
                 t <- readTimeLimit
                 emptyLines
                 a <- readArityLimit
                 emptyLines
-                f <- readField
+                z <- readField
                 emptyLines
                 o <- readOType
                 emptyLines
@@ -297,20 +301,20 @@ readConfig = do emptyLines
                 emptyLines
                 s <- liftM verifySig readSignature
                 emptyLines
-                x <- if fst o then if snd o then liftM (Left  . Right) $ verifyPolys True  "theory:" f s m
-                                            else liftM (Left  . Left ) $ verifyPolys True  "theory:" f s m
-                              else if snd o then liftM (Right . Right) $ verifyPolys False "theory:" f s m
-                                            else liftM (Right . Left ) $ verifyPolys False "theory:" f s m
+                x <- if fst o then if snd o then liftM (Left  . Right) $ verifyPolys True  "theory:" z s m
+                                            else liftM (Left  . Left ) $ verifyPolys True  "theory:" z s m
+                              else if snd o then liftM (Right . Right) $ verifyPolys False "theory:" z s m
+                                            else liftM (Right . Left ) $ verifyPolys False "theory:" z s m
                 emptyLines
                 r <- optionMaybe $ try $
                        case x of
-                         Left  (Left  _) -> liftM (Left  . Left ) $ verifyPolys True  "reduce:" f s m
-                         Left  (Right _) -> liftM (Left  . Right) $ verifyPolys True  "reduce:" f s m
-                         Right (Left  _) -> liftM (Right . Left ) $ verifyPolys False "reduce:" f s m
-                         Right (Right _) -> liftM (Right . Right) $ verifyPolys False "reduce:" f s m
+                         Left  (Left  _) -> liftM (Left  . Left ) $ verifyPolys True  "reduce:" z s m
+                         Left  (Right _) -> liftM (Left  . Right) $ verifyPolys True  "reduce:" z s m
+                         Right (Left  _) -> liftM (Right . Left ) $ verifyPolys False "reduce:" z s m
+                         Right (Right _) -> liftM (Right . Right) $ verifyPolys False "reduce:" z s m
                 emptyLines
                 eof
-                return (Config n g w l a t b c d e f m s x r)
+                return (Config n g w l q a t b c d leading cp z m s x r)
 
 ----------------------------
 

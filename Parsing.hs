@@ -101,8 +101,9 @@ readCountLimit = do string "count limit:" >> whitespace
                     readNum <|> return 0
 
 readChunk :: Parser Int
-readChunk = do string "chunk:" >> whitespace
-               readNum <|> return 1
+readChunk = try (do string "chunk:" >> whitespace
+                    readNum <|> return 1)
+           <|> return 16
 
 readOutput :: Parser (Bool,Bool,Bool,Bool,Bool)
 readOutput = do string "output:" >> whitespace
@@ -118,11 +119,12 @@ readTimeLimit = do string "time limit:" >> whitespace
 
 -- Optional save file
 readSave :: Parser (Maybe String)
-readSave = do string "save:" >> whitespace
-              fname <- many (noneOf "\n\r")
-              endOfLine
-              let f = dropWhile isSpace . reverse . dropWhile isSpace . reverse $ fname
-              return (if null f then Nothing else Just f)
+readSave = try (do string "save:" >> whitespace
+                   fname <- many (noneOf "\n\r")
+                   endOfLine
+                   let f = dropWhile isSpace . reverse . dropWhile isSpace . reverse $ fname
+                   return (if null f then Nothing else Just f))
+         <|> return Nothing
 
 readArityLimit :: Parser (Maybe Int)
 readArityLimit = do string "arity limit:" >> whitespace
@@ -324,9 +326,31 @@ readConfig = do emptyLines
 
 readIn :: String -> IO Config
 readIn file = do xs <- readFile file
-                 case parse readConfig "" xs of
+                 let (xs2, ssave, schunk) = extractOptions xs
+                 case parse readConfig "" xs2 of
                    Left err -> error (show err)
-                   Right cp -> return cp
+                   Right cp -> let newSave = case ssave of Just v -> Just v; Nothing -> getSave cp
+                                   newChunks = case schunk of Just i -> i; Nothing -> getChunks cp
+                               in return cp { getSave = newSave, getChunks = newChunks }
 
-----------------------------
+
+extractOptions :: String -> (String, Maybe String, Maybe Int)
+extractOptions s =
+  let ls = lines s
+      trimLeft = dropWhile isSpace
+      trimRight = reverse . dropWhile isSpace . reverse
+      go [] before save chunk = (unlines before, save, chunk)
+      go (x:xs) before save chunk =
+        let xl = trimLeft x
+        in if "save:" `isPrefixOf` xl
+             then let fname = trimRight $ trimLeft (drop (length "save:") xl)
+                  in go xs before (if null fname then save else Just fname) chunk
+             else if "chunk:" `isPrefixOf` xl
+                    then let rest = trimLeft (drop (length "chunk:") xl)
+                             mch = case reads rest :: [(Int,String)] of
+                                     (i,_):_ -> Just i
+                                     _       -> chunk
+                         in go xs before save mch
+                    else go xs (before ++ [x]) save chunk
+  in go ls [] Nothing Nothing
 

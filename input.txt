@@ -7,7 +7,7 @@
 #                  with respect to the given theory
 #  stageCount -- show counts after each arity
 
-actions: normalise stageCount
+actions: normalise
 
 # --------------------------------------
 # Parameters for counting
@@ -21,7 +21,7 @@ count limit: 7
 # Chunk size 
 #   number of instructions per chunk during parallel computations
 #   it is recommended to use smaller chunks for machines with higher runtime capabilities
-
+#   default chunk size is set to 16
 chunk: 16
 
 # --------------------------------------
@@ -39,7 +39,7 @@ output: final
 # Saving a Groebner basis
 #   enter the file name (example: GroebnerBasis.txt)
 #   leave empty for not saving in a seperate file
-save:
+save: GroebnerBasis.txt
 
 # Time limit (seconds)
 #   computation will be abandoned after this time
@@ -51,7 +51,7 @@ time limit:
 #   computation will be abandoned upon reaching this arity
 #   leave empty for no arity limit
 
-arity limit: 7
+arity limit: 6
 
 # --------------------------------------
 # Operad specification

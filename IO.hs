@@ -129,6 +129,12 @@ initialise cfg ps =
       lrg = selfCPs rws
       str = "Initial rewrite theory:\n\n  " ++ ppRewrites (printLeading cfg) sig rws
   in do if printInit cfg then putStrLn str else return ()
+        -- If configured, append the initial rewrite theory
+        if not (null rws)
+          then case getSave cfg of
+                 Just fn -> appendFile fn (ppRewrites (printLeading cfg) sig rws ++ "\n")
+                 Nothing -> return ()
+          else return ()
         return (Stage 0 sig w rws [] lrg)
 
 

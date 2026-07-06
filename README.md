@@ -13,7 +13,7 @@ To install the program, you may clone the GitHub directory by either clicking th
 
 `git clone https://github.com/MedetJuma/haskellOperads.git`
 
-Once installed, install `ghcup` by following the instructions (https://www.haskell.org/ghcup/install/). You may also need to install `cabal` (https://www.haskell.org/cabal/).
+Once cloned, install `ghcup` by following the instructions (https://www.haskell.org/ghcup/install/). You may also need to install `cabal` (https://www.haskell.org/cabal/).
 
 Then, modify the `input.txt` file to specify the theory. An example theory currently in the repository's input file is the mock-Lie operad, which is an unsigned shuffle operad. You may also adjust other options, such as `arity limit`, `measure`, or `count limit`.
 
